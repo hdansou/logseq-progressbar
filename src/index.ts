@@ -53,6 +53,7 @@ async function main() {
       const globalConfig = readGlobalConfig();
       const overrides = parseRendererArgs(args);
       const config = resolveConfig(globalConfig, overrides);
+      console.log("[progress-bar] resolved config:", JSON.stringify(config, (_, v) => v === Infinity ? "Infinity" : v));
       const colorOverrides = parseColorOverrides(
         (logseq as any).settings?.colorOverrides
       );
@@ -60,16 +61,21 @@ async function main() {
       // Determine scan mode
       let blocks;
       if (config.queryUUID) {
+        console.log("[progress-bar] scanning query:", config.queryUUID);
         blocks = await scanQuery(config.queryUUID, config);
       } else {
+        console.log("[progress-bar] scanning children of:", blockUuid);
         blocks = await scanChildren(blockUuid, config);
       }
+      console.log("[progress-bar] scanned blocks:", blocks.length);
 
       // Filter by tags
       blocks = filterByTags(blocks, config);
+      console.log("[progress-bar] filtered blocks:", blocks.length);
 
       // Aggregate
       const stats = aggregate(blocks, config);
+      console.log("[progress-bar] stats:", JSON.stringify(stats));
 
       // Handle empty state
       if (stats.total === 0) {
@@ -124,7 +130,10 @@ async function main() {
 
   // --- Macro Renderer ---
   logseq.App.onMacroRendererSlotted(async ({ slot, payload }) => {
-    const [type] = payload.arguments;
+    const args = payload.arguments;
+    const type = args[0]?.trim();
+    console.log("[progress-bar] onMacroRendererSlotted:", { type, args, uuid: payload.uuid });
+
     if (type !== ":progress-bar") return;
 
     const blockUuid = payload.uuid;
@@ -133,11 +142,11 @@ async function main() {
     // Track for re-rendering
     activeRenderers.set(key, {
       slot,
-      args: payload.arguments,
+      args,
       uuid: blockUuid,
     });
 
-    await renderProgressBar(slot, payload.arguments, blockUuid);
+    await renderProgressBar(slot, args, blockUuid);
   });
 
   // --- Slash Command ---

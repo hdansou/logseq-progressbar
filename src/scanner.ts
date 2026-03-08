@@ -68,42 +68,39 @@ export async function scanQuery(
  * Resolve the query DSL string from a query block.
  *
  * In DB graphs, `logseq.property/query` is a reference ({db/id: N}),
- * not the raw DSL string. We try multiple strategies to extract it.
+ * not the raw DSL string. The SDK's getBlockProperty returns the property
+ * definition entity, not the value. We must use datascript to resolve
+ * the actual value, or pull the full block entity.
  */
 async function resolveQueryDSL(
   uuid: string,
   _block: any
 ): Promise<string | null> {
-  // Strategy 1: getBlockProperty with short key "query" (SDK normalizes namespaced keys)
-  for (const key of ["query", "logseq.property/query"]) {
-    try {
-      const val = await logseq.Editor.getBlockProperty(uuid, key);
-      console.log(`[progress-bar] getBlockProperty("${key}"):`, typeof val, val);
-      const str = extractDSLString(val);
-      if (str) return str;
-    } catch (e) {
-      console.log(`[progress-bar] getBlockProperty("${key}") error:`, e);
-    }
-  }
-
-  // Strategy 2: getBlockProperties — inspect all keys for query-related ones
+  // Strategy 1: Pull full block entity via datascript and inspect all attributes
   try {
-    const props = await logseq.Editor.getBlockProperties(uuid);
-    console.log("[progress-bar] getBlockProperties keys:", props ? Object.keys(props) : "null");
-    if (props) {
-      for (const [key, val] of Object.entries(props)) {
-        if (key.toLowerCase().includes("query")) {
-          console.log(`[progress-bar] property "${key}":`, typeof val, val);
-          const str = extractDSLString(val);
-          if (str) return str;
+    const pulled = await logseq.DB.datascriptQuery(`
+      [:find (pull ?b [*]) .
+       :in $ ?uuid
+       :where
+       [?b :block/uuid ?uuid]]
+    `, `#uuid "${uuid}"`);
+    console.log("[progress-bar] pulled block entity keys:", pulled ? Object.keys(pulled) : "null");
+    if (pulled) {
+      // Log all keys that might contain the query
+      for (const [k, v] of Object.entries(pulled)) {
+        if (k.toLowerCase().includes("query") || k.includes("logseq.property")) {
+          console.log(`[progress-bar] entity["${k}"]:`, typeof v, v);
         }
       }
+      // Try to find the query DSL in the pulled entity
+      const dsl = findDSLInEntity(pulled);
+      if (dsl) return dsl;
     }
   } catch (e) {
-    console.log("[progress-bar] getBlockProperties error:", e);
+    console.log("[progress-bar] pull entity error:", e);
   }
 
-  // Strategy 3: Datascript — resolve the reference entity's title directly
+  // Strategy 2: Datascript — resolve the reference entity's title
   try {
     const result = await logseq.DB.datascriptQuery(`
       [:find ?q .
@@ -113,28 +110,29 @@ async function resolveQueryDSL(
        [?b :logseq.property/query ?qid]
        [?qid :block/title ?q]]
     `, `#uuid "${uuid}"`);
-    console.log("[progress-bar] datascript result:", typeof result, result);
-    const str = extractDSLString(result);
-    if (str) return str;
+    console.log("[progress-bar] datascript resolve result:", typeof result, result);
+    if (typeof result === "string" && result.trim().startsWith("(")) {
+      return result.trim();
+    }
   } catch (e) {
-    console.log("[progress-bar] datascript error:", e);
+    console.log("[progress-bar] datascript resolve error:", e);
   }
 
-  // Strategy 4: Datascript — try pulling the entity with content
+  // Strategy 3: getBlock + deep inspect of properties
   try {
-    const result = await logseq.DB.datascriptQuery(`
-      [:find ?q .
-       :in $ ?uuid
-       :where
-       [?b :block/uuid ?uuid]
-       [?b :logseq.property/query ?qid]
-       [(str ?qid) ?q]]
-    `, `#uuid "${uuid}"`);
-    console.log("[progress-bar] datascript str result:", typeof result, result);
-    const str = extractDSLString(result);
-    if (str) return str;
+    const block = await logseq.Editor.getBlock(uuid);
+    if (block) {
+      console.log("[progress-bar] getBlock keys:", Object.keys(block));
+      console.log("[progress-bar] getBlock properties:", block.properties);
+      const dsl = findDSLInEntity(block);
+      if (dsl) return dsl;
+      if (block.properties) {
+        const dsl2 = findDSLInEntity(block.properties);
+        if (dsl2) return dsl2;
+      }
+    }
   } catch (e) {
-    console.log("[progress-bar] datascript str error:", e);
+    console.log("[progress-bar] getBlock error:", e);
   }
 
   console.warn("[progress-bar] Could not resolve query DSL for block:", uuid);
@@ -142,30 +140,26 @@ async function resolveQueryDSL(
 }
 
 /**
- * Extract a valid DSL query string from a value (string, object, or nested).
- * Valid DSL queries start with "(" — e.g., (and (tags [[Task]]) ...)
+ * Recursively search an entity object for a DSL query string.
+ * Valid DSL queries start with "(".
  */
-function extractDSLString(val: unknown): string | null {
-  if (val == null) return null;
-
-  // Direct string
-  if (typeof val === "string") {
-    const trimmed = val.trim();
-    if (trimmed.startsWith("(")) return trimmed;
-    return null; // Not a DSL query (e.g., block title)
-  }
-
-  // Reference object — look for nested string fields
-  if (typeof val === "object") {
-    const obj = val as Record<string, unknown>;
-    for (const field of ["title", "content", "name", "value"]) {
-      if (typeof obj[field] === "string") {
-        const trimmed = (obj[field] as string).trim();
-        if (trimmed.startsWith("(")) return trimmed;
+function findDSLInEntity(obj: Record<string, unknown>): string | null {
+  for (const [_key, val] of Object.entries(obj)) {
+    if (typeof val === "string") {
+      const trimmed = val.trim();
+      if (trimmed.startsWith("(") && trimmed.endsWith(")")) return trimmed;
+    }
+    // Check one level deep into nested objects
+    if (val && typeof val === "object" && !Array.isArray(val)) {
+      const nested = val as Record<string, unknown>;
+      for (const [_nk, nv] of Object.entries(nested)) {
+        if (typeof nv === "string") {
+          const trimmed = nv.trim();
+          if (trimmed.startsWith("(") && trimmed.endsWith(")")) return trimmed;
+        }
       }
     }
   }
-
   return null;
 }
 
