@@ -65,21 +65,31 @@ export async function scanQuery(
   }
 
   // Attempt 2: Strip (between ...) and retry with just tag/property filters
-  if (!queryResults) {
+  if (!queryResults?.length) {
     const simplified = stripBetweenClause(queryStr);
     if (simplified !== queryStr) {
       console.log("[progress-bar] retrying with simplified DSL:", simplified);
       try {
         const res = await logseq.DB.q(simplified);
-        if (Array.isArray(res)) queryResults = res;
+        if (Array.isArray(res) && res.length > 0) queryResults = res;
       } catch (e) {
         console.warn("[progress-bar] DB.q() failed for simplified DSL:", e);
       }
     }
   }
 
-  // Attempt 3: Extract tags from DSL and use getTagObjects as fallback
-  if (!queryResults) {
+  // Attempt 3: Parse (task ...) statuses and query via datascript
+  if (!queryResults?.length) {
+    const taskStatuses = parseTaskStatuses(queryStr);
+    if (taskStatuses.length > 0) {
+      const dateRange = parseBetweenDates(queryStr);
+      console.log("[progress-bar] datascript task fallback, statuses:", taskStatuses, "dateRange:", dateRange);
+      queryResults = await queryTasksByStatus(taskStatuses, dateRange);
+    }
+  }
+
+  // Attempt 4: Extract tags from DSL and use getTagObjects as fallback
+  if (!queryResults?.length) {
     console.log("[progress-bar] falling back to getTagObjects");
     queryResults = await queryByTagsFallback(queryStr);
   }
@@ -88,11 +98,120 @@ export async function scanQuery(
 
   const results: BlockData[] = [];
   for (const block of queryResults) {
-    if (!block?.uuid) continue;
-    const bd = await toBlockData(block);
+    // DB.q() in DB graphs may return {id: N} without uuid.
+    // Resolve uuid from entity id if needed.
+    let uuid = block?.uuid;
+    if (!uuid && block?.id) {
+      try {
+        const entity = await logseq.DB.datascriptQuery(`
+          [:find ?u .
+           :where [${block.id} :block/uuid ?u]]
+        `);
+        if (entity) uuid = typeof entity === "string" ? entity : String(entity);
+      } catch {
+        // skip
+      }
+    }
+    if (!uuid) continue;
+    const bd = await toBlockData({ ...block, uuid });
     if (bd) results.push(bd);
   }
   return results;
+}
+
+/**
+ * Parse task status values from DSL like (task "Done" "Doing" "Todo").
+ */
+function parseTaskStatuses(dsl: string): string[] {
+  const match = dsl.match(/\(\s*task\s+(.+?)\)/i);
+  if (!match) return [];
+
+  const inner = match[1];
+  const statuses: string[] = [];
+
+  // Extract quoted values: "Done", "Doing"
+  for (const m of inner.matchAll(/"([^"]+)"/g)) {
+    statuses.push(m[1]);
+  }
+
+  // If no quoted values, try bare words: done doing todo
+  if (statuses.length === 0) {
+    statuses.push(...inner.trim().split(/\s+/).filter(Boolean));
+  }
+
+  return statuses;
+}
+
+/**
+ * Parse date range from (between [[uuid1]] [[uuid2]]) in DSL.
+ * DB graph journal UUIDs follow pattern: 00000001-YYYY-MMDD-0000-000000000000
+ * Returns journal-day integers in YYYYMMDD format.
+ */
+function parseBetweenDates(dsl: string): { start: number; end: number } | null {
+  const match = dsl.match(
+    /\(\s*between\s+\[\[([^\]]+)\]\]\s+\[\[([^\]]+)\]\]\s*\)/i
+  );
+  if (!match) return null;
+
+  const dateFromUUID = (uuid: string): number | null => {
+    const m = uuid.match(/00000001-(\d{4})-(\d{2})(\d{2})-/);
+    if (!m) return null;
+    return parseInt(`${m[1]}${m[2]}${m[3]}`);
+  };
+
+  const start = dateFromUUID(match[1]);
+  const end = dateFromUUID(match[2]);
+  if (start === null || end === null) return null;
+  return { start, end };
+}
+
+/**
+ * Query blocks by task status using datascript, with optional date range.
+ */
+async function queryTasksByStatus(
+  statuses: string[],
+  dateRange: { start: number; end: number } | null
+): Promise<any[]> {
+  const allResults: any[] = [];
+
+  for (const status of statuses) {
+    try {
+      const dateClause = dateRange
+        ? `[?b :block/page ?p]
+           [?p :block/journal-day ?d]
+           [(>= ?d ${dateRange.start})]
+           [(<= ?d ${dateRange.end})]`
+        : "";
+
+      const query = `
+        [:find (pull ?b [:block/uuid])
+         :where
+         [?b :logseq.property/status ?s]
+         [?s :block/title "${status}"]
+         ${dateClause}]`;
+
+      const res = await logseq.DB.datascriptQuery(query);
+      if (Array.isArray(res)) {
+        for (const item of res) {
+          // datascriptQuery results can be [[{...}]] or [{...}]
+          const block = Array.isArray(item) ? item[0] : item;
+          if (block?.uuid) {
+            allResults.push(block);
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[progress-bar] datascript task query failed for "${status}":`, e);
+    }
+  }
+
+  // Deduplicate by uuid
+  const seen = new Set<string>();
+  return allResults.filter((b) => {
+    if (!b?.uuid || seen.has(b.uuid)) return false;
+    seen.add(b.uuid);
+    return true;
+  });
 }
 
 /**
@@ -158,13 +277,7 @@ async function resolveQueryDSL(
        :where
        [?b :block/uuid #uuid "${uuid}"]]
     `);
-    console.log("[progress-bar] pulled entity keys:", pulled ? Object.keys(pulled) : "null");
     if (pulled) {
-      for (const [k, v] of Object.entries(pulled)) {
-        if (k.toLowerCase().includes("query") || k.includes("logseq.property")) {
-          console.log(`[progress-bar] entity["${k}"]:`, typeof v, v);
-        }
-      }
       const dsl = findDSLInEntity(pulled);
       if (dsl) return dsl;
     }
@@ -181,7 +294,6 @@ async function resolveQueryDSL(
        [?b :logseq.property/query ?qid]
        [?qid :block/title ?q]]
     `);
-    console.log("[progress-bar] datascript resolve result:", typeof result, result);
     if (typeof result === "string" && result.trim().startsWith("(")) {
       return result.trim();
     }
@@ -193,8 +305,6 @@ async function resolveQueryDSL(
   try {
     const block = await logseq.Editor.getBlock(uuid);
     if (block) {
-      console.log("[progress-bar] getBlock keys:", Object.keys(block));
-      console.log("[progress-bar] getBlock properties:", block.properties);
       const dsl = findDSLInEntity(block as any);
       if (dsl) return dsl;
       if (block.properties) {

@@ -58,6 +58,22 @@ async function main() {
         (logseq as any).settings?.colorOverrides
       );
 
+      // Auto-detect query block: if the block has :logseq.property/query, treat as query
+      if (!config.queryUUID) {
+        try {
+          const entity = await logseq.DB.datascriptQuery(`
+            [:find (pull ?b [:logseq.property/query]) .
+             :where [?b :block/uuid #uuid "${blockUuid}"]]
+          `);
+          if (entity?.[":logseq.property/query"]) {
+            config.queryUUID = blockUuid;
+            console.log("[progress-bar] auto-detected query block:", blockUuid);
+          }
+        } catch {
+          // not a query block, continue with children scan
+        }
+      }
+
       // Determine scan mode
       let blocks;
       if (config.queryUUID) {
