@@ -1,19 +1,10 @@
 import { defineConfig } from "vite";
+import logseqDevPlugin from "vite-plugin-logseq";
 
 export default defineConfig({
-  base: "./",
+  plugins: [logseqDevPlugin()],
   build: {
-    outDir: "dist",
-    emptyOutDir: true,
-    target: "es2020",
-  },
-  server: {
-    host: "0.0.0.0",
-    port: 8080,
-    cors: true,
-  },
-  test: {
-    globals: true,
-    environment: "node",
+    target: "esnext",
+    minify: "esbuild",
   },
 });
