@@ -68,22 +68,42 @@ export async function scanQuery(
  * Resolve the query DSL string from a query block.
  *
  * In DB graphs, `logseq.property/query` is a reference ({db/id: N}),
- * not the raw DSL string. We try multiple strategies:
- * 1. getBlockProperty — SDK may resolve the reference to a string
- * 2. Datascript query — resolve the reference entity's title/content
- * 3. Block content fallback
+ * not the raw DSL string. We try multiple strategies to extract it.
  */
 async function resolveQueryDSL(
   uuid: string,
-  block: any
+  _block: any
 ): Promise<string | null> {
-  // Strategy 1: getBlockProperty may resolve the reference
-  try {
-    const val = await logseq.Editor.getBlockProperty(uuid, "logseq.property/query");
-    if (typeof val === "string" && val.trim()) return val.trim();
-  } catch { /* continue */ }
+  // Strategy 1: getBlockProperty with short key "query" (SDK normalizes namespaced keys)
+  for (const key of ["query", "logseq.property/query"]) {
+    try {
+      const val = await logseq.Editor.getBlockProperty(uuid, key);
+      console.log(`[progress-bar] getBlockProperty("${key}"):`, typeof val, val);
+      const str = extractDSLString(val);
+      if (str) return str;
+    } catch (e) {
+      console.log(`[progress-bar] getBlockProperty("${key}") error:`, e);
+    }
+  }
 
-  // Strategy 2: Use datascript to resolve the property value entity
+  // Strategy 2: getBlockProperties — inspect all keys for query-related ones
+  try {
+    const props = await logseq.Editor.getBlockProperties(uuid);
+    console.log("[progress-bar] getBlockProperties keys:", props ? Object.keys(props) : "null");
+    if (props) {
+      for (const [key, val] of Object.entries(props)) {
+        if (key.toLowerCase().includes("query")) {
+          console.log(`[progress-bar] property "${key}":`, typeof val, val);
+          const str = extractDSLString(val);
+          if (str) return str;
+        }
+      }
+    }
+  } catch (e) {
+    console.log("[progress-bar] getBlockProperties error:", e);
+  }
+
+  // Strategy 3: Datascript — resolve the reference entity's title directly
   try {
     const result = await logseq.DB.datascriptQuery(`
       [:find ?q .
@@ -92,28 +112,58 @@ async function resolveQueryDSL(
        [?b :block/uuid ?uuid]
        [?b :logseq.property/query ?qid]
        [?qid :block/title ?q]]
-    `, `"${uuid}"`);
-    if (typeof result === "string" && result.trim()) return result.trim();
-  } catch { /* continue */ }
+    `, `#uuid "${uuid}"`);
+    console.log("[progress-bar] datascript result:", typeof result, result);
+    const str = extractDSLString(result);
+    if (str) return str;
+  } catch (e) {
+    console.log("[progress-bar] datascript error:", e);
+  }
 
-  // Strategy 3: Try getBlockProperties and extract string from any format
+  // Strategy 4: Datascript — try pulling the entity with content
   try {
-    const props = await logseq.Editor.getBlockProperties(uuid);
-    for (const key of ["logseq.property/query", "query"]) {
-      const v = props?.[key];
-      if (typeof v === "string" && v.trim()) return v.trim();
-      // Reference object — try extracting the title/content/name
-      if (v && typeof v === "object") {
-        const obj = v as Record<string, unknown>;
-        const str = (obj.title ?? obj.content ?? obj.name) as string | undefined;
-        if (typeof str === "string" && str.trim()) return str.trim();
+    const result = await logseq.DB.datascriptQuery(`
+      [:find ?q .
+       :in $ ?uuid
+       :where
+       [?b :block/uuid ?uuid]
+       [?b :logseq.property/query ?qid]
+       [(str ?qid) ?q]]
+    `, `#uuid "${uuid}"`);
+    console.log("[progress-bar] datascript str result:", typeof result, result);
+    const str = extractDSLString(result);
+    if (str) return str;
+  } catch (e) {
+    console.log("[progress-bar] datascript str error:", e);
+  }
+
+  console.warn("[progress-bar] Could not resolve query DSL for block:", uuid);
+  return null;
+}
+
+/**
+ * Extract a valid DSL query string from a value (string, object, or nested).
+ * Valid DSL queries start with "(" — e.g., (and (tags [[Task]]) ...)
+ */
+function extractDSLString(val: unknown): string | null {
+  if (val == null) return null;
+
+  // Direct string
+  if (typeof val === "string") {
+    const trimmed = val.trim();
+    if (trimmed.startsWith("(")) return trimmed;
+    return null; // Not a DSL query (e.g., block title)
+  }
+
+  // Reference object — look for nested string fields
+  if (typeof val === "object") {
+    const obj = val as Record<string, unknown>;
+    for (const field of ["title", "content", "name", "value"]) {
+      if (typeof obj[field] === "string") {
+        const trimmed = (obj[field] as string).trim();
+        if (trimmed.startsWith("(")) return trimmed;
       }
     }
-  } catch { /* continue */ }
-
-  // Strategy 4: Block content fallback (unlikely for query blocks)
-  if (typeof block.content === "string" && block.content.trim()) {
-    return block.content.trim();
   }
 
   return null;
