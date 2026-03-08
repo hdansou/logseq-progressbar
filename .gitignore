@@ -4,3 +4,6 @@ dist/
 *.log
 .env
 .env.local
+.vscode/*.code-workspace
+coverage/
+*.tsbuildinfo
