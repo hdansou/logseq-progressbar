@@ -9,11 +9,12 @@
 
 - [x] Initialize project with Vite + TypeScript scaffold
 - [x] Configure `package.json` with plugin metadata and scripts
-- [x] Set up `@logseq/libs` dependency
+- [x] Set up `@logseq/libs` dependency (upgraded to `^0.2.8`)
 - [x] Create `tsconfig.json` with strict mode
 - [ ] Set up ESLint + Prettier
 - [x] Create `.gitignore` for node_modules, dist, etc.
-- [ ] Verify plugin loads in Logseq dev environment
+- [x] Verify plugin loads in Logseq dev environment
+  - Fixed handshake timeout: added `vite-plugin-logseq`, changed dev script to `vite build --watch`
 
 ---
 
@@ -35,8 +36,10 @@
 - [x] **1.5** Implement block scanner — page mode
   - Given a page, collect all blocks within configured depth
 - [x] **1.6** Implement block scanner — query mode
-  - Given a query block UUID, execute the query and collect result blocks
-  - Use `DB.datascriptQuery` or `DB.q` to fetch query results
+  - Given a query block UUID, resolve DSL string via datascript, execute query
+  - 3-tier fallback: full DSL → strip `(between ...)` → `getTagObjects`
+  - Resolved DB reference issue: `logseq.property/query` is a reference entity in DB graphs
+  - Fixed datascript parameter passing: inline `#uuid` instead of `:in` params
 - [x] **1.7** Implement tag filter
   - Filter collected blocks by tags in scope
   - Support strict mode (exclude untagged) and inclusive mode (include all)
@@ -96,8 +99,9 @@
   - Register `/progress-bar` slash command to insert the renderer macro
 - [x] **3.3** Implement query integration
   - When `query: <uuid>` param is present, fetch the query block
-  - Execute the query's DSL to get result blocks
-  - Aggregate and render progress bar for query results
+  - Resolve DSL string via datascript (DB graph reference resolution)
+  - Execute query with 3-tier fallback for complex DSL
+  - ⚠️ Known limitation: `(between ...)` date filters stripped on re-execution
 - [ ] **3.4** Implement auto-detect mode
   - On `App.onRouteChanged`, scan current page for blocks with matching tags
   - Identify parent blocks that have tagged children
@@ -128,17 +132,24 @@
   - Verify colors update immediately on dark/light toggle
 - [x] **4.7** Settings change reactivity
   - Verify bars re-render when plugin settings are changed
+- [x] **4.8** Debug logging for query resolution (temporary)
+  - Console logs at each resolution strategy for diagnosis
+  - To be removed before production release
 
 ---
 
 ## Phase 5: Documentation & Release
 
-- [ ] **5.1** Write user-facing README.md
+- [x] **5.1** Write user-facing README.md
   - Installation instructions
   - Usage examples (manual, auto-detect, query)
   - Settings reference
-  - Screenshots/GIFs
 - [ ] **5.2** Finalize CHANGELOG.md for v0.1.0
-- [ ] **5.3** Build production bundle
-- [ ] **5.4** Test production build in Logseq
+- [x] **5.3** Build production bundle (verified: `npm run build` succeeds)
+- [ ] **5.4** Test production build in Logseq — in progress
+  - [x] Plugin loads successfully (handshake fixed)
+  - [x] Macro renderer fires on `{{renderer :progress-bar}}`
+  - [ ] Query mode end-to-end working (DSL resolved, blocks scanned, bar rendered)
+  - [ ] Children scan mode verified
+  - [ ] Visual rendering verified
 - [ ] **5.5** Publish to Logseq marketplace (or prepare for manual install)

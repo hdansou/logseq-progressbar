@@ -33,12 +33,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Real-time updates via `DB.onChanged` event listener
   - Settings change reactivity — bars re-render on settings update
 - **Unit tests** — 60 tests across 5 test files
-  - Parser: 18 tests
-  - Config resolver: 10 tests
-  - Aggregator: 12 tests
-  - Colors: 11 tests
-  - Renderer: 9 tests
+  - Parser: 18 tests, Config: 10 tests, Aggregator: 12 tests, Colors: 11 tests, Renderer: 9 tests
 - Project scaffolding: Vite + TypeScript, package.json, tsconfig, index.html
+- README.md with usage, settings reference, and examples
+
+### Fixed
+- **Plugin handshake timeout** — migrated to `vite-plugin-logseq`, upgraded `@logseq/libs` to `^0.2.8`, changed dev script to `vite build --watch`
+- **ESM compatibility** — upgraded Vite to `^7.0.0`, Vitest to `^3.0.0`, separated `vitest.config.ts` from `vite.config.ts`
+- **Query DSL resolution** — in DB graphs, `logseq.property/query` is a reference entity, not a raw string. Resolved via datascript pull with inlined `#uuid` (SDK `datascriptQuery` doesn't pass `:in` parameters correctly)
+- **Complex DSL queries** — `DB.q()` fails for DSL with `(between ...)` clauses (date bindings not available from plugin API). Added 3-tier fallback: full DSL → strip between clause → `getTagObjects` fallback
+
+### Known Limitations
+- `(between ...)` date clauses in queries are stripped when re-executing from plugin; query results may include items outside the original date range
+- Auto-detect mode not yet implemented
+- ESLint + Prettier not yet configured
 
 ### Not Yet Implemented
 - Auto-detect mode (scan page for tagged children without explicit renderer)
@@ -46,4 +54,3 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Visual QA in running Logseq instance
 - Performance testing with 50+ tasks
 - Production build and marketplace publishing
-- User-facing README.md
