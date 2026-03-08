@@ -1,8 +1,9 @@
 import "@logseq/libs";
 import { parseRendererArgs } from "./parser";
 import { readGlobalConfig, resolveConfig, SETTINGS_SCHEMA } from "./config";
-import { scanChildren, scanQuery, filterByTags } from "./scanner";
+import { scanChildren, countQueryStatuses, filterByTags } from "./scanner";
 import { aggregate } from "./aggregator";
+import type { StatusCounts } from "./types";
 import { buildSegments, parseColorOverrides } from "./colors";
 import { renderBar, renderEmpty, PLUGIN_CSS } from "./renderer";
 
@@ -74,23 +75,17 @@ async function main() {
         }
       }
 
-      // Determine scan mode
-      let blocks;
+      // Determine scan mode and get status counts
+      let stats: StatusCounts;
       if (config.queryUUID) {
-        console.log("[progress-bar] scanning query:", config.queryUUID);
-        blocks = await scanQuery(config.queryUUID, config);
+        // Query mode: count statuses directly via datascript
+        stats = await countQueryStatuses(config.queryUUID, config);
       } else {
-        console.log("[progress-bar] scanning children of:", blockUuid);
-        blocks = await scanChildren(blockUuid, config);
+        // Children mode: scan blocks, filter, aggregate
+        let blocks = await scanChildren(blockUuid, config);
+        blocks = filterByTags(blocks, config);
+        stats = aggregate(blocks, config);
       }
-      console.log("[progress-bar] scanned blocks:", blocks.length);
-
-      // Filter by tags
-      blocks = filterByTags(blocks, config);
-      console.log("[progress-bar] filtered blocks:", blocks.length);
-
-      // Aggregate
-      const stats = aggregate(blocks, config);
       console.log("[progress-bar] stats:", JSON.stringify(stats));
 
       // Handle empty state

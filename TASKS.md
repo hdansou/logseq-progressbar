@@ -35,11 +35,15 @@
   - Depth `1` = direct children, `all` = full recursion
 - [x] **1.5** Implement block scanner — page mode
   - Given a page, collect all blocks within configured depth
-- [x] **1.6** Implement block scanner — query mode
-  - Given a query block UUID, resolve DSL string via datascript, execute query
-  - 3-tier fallback: full DSL → strip `(between ...)` → `getTagObjects`
-  - Resolved DB reference issue: `logseq.property/query` is a reference entity in DB graphs
-  - Fixed datascript parameter passing: inline `#uuid` instead of `:in` params
+- [x] **1.6** Implement query mode — direct datascript status counting
+  - Add `{{renderer :progress-bar}}` to a query block's title
+  - Auto-detect query block via `:logseq.property/query` property on the block UUID
+  - Resolve the DSL string by following the query reference chain (3 strategies)
+  - Parse the DSL into structured components: status values, date range, tag filters, property filters
+  - Build a datascript count query from parsed DSL — returns `[status, count]` pairs directly
+  - Single `datascriptQuery()` call replaces the broken `DB.q()` + block-by-block fetching
+  - Handles: `(task ...)`, `(between ...)`, `(tags ...)`, `(property ...)`, `(and ...)`
+  - Honors any user-defined query filters — not hardcoded to specific patterns
 - [x] **1.7** Implement tag filter
   - Filter collected blocks by tags in scope
   - Support strict mode (exclude untagged) and inclusive mode (include all)
@@ -98,10 +102,11 @@
 - [x] **3.2** Implement slash command
   - Register `/progress-bar` slash command to insert the renderer macro
 - [x] **3.3** Implement query integration
-  - When `query: <uuid>` param is present, fetch the query block
-  - Resolve DSL string via datascript (DB graph reference resolution)
-  - Execute query with 3-tier fallback for complex DSL
-  - ⚠️ Known limitation: `(between ...)` date filters stripped on re-execution
+  - Query blocks auto-detected when `{{renderer :progress-bar}}` is in the block title
+  - DSL resolved via datascript reference chain (`:logseq.property/query` → entity → `:block/title`)
+  - Status counts computed directly via datascript aggregation (no `DB.q()`)
+  - `(between ...)` date filters handled natively in datascript via `:block/journal-day`
+  - All user-defined query filters honored — progress bar matches the query's intent
 - [ ] **3.4** Implement auto-detect mode
   - On `App.onRouteChanged`, scan current page for blocks with matching tags
   - Identify parent blocks that have tagged children
