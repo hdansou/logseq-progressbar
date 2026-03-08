@@ -46,17 +46,13 @@ export async function scanQuery(
   const queryBlock = await logseq.Editor.getBlock(queryUUID);
   if (!queryBlock) return [];
 
-  // Read the query DSL from the block's property
-  const props = await logseq.Editor.getBlockProperties(queryUUID);
-  const queryStr =
-    props?.["logseq.property/query"] ??
-    props?.query ??
-    queryBlock.content;
-
+  // Extract the query DSL string — the property value is often a DB reference,
+  // not a raw string. Try multiple resolution strategies.
+  const queryStr = await resolveQueryDSL(queryUUID, queryBlock);
   if (!queryStr) return [];
 
   // Execute the DSL query
-  const queryResults = await logseq.DB.q(String(queryStr));
+  const queryResults = await logseq.DB.q(queryStr);
   if (!Array.isArray(queryResults)) return [];
 
   const results: BlockData[] = [];
@@ -66,6 +62,61 @@ export async function scanQuery(
     if (bd) results.push(bd);
   }
   return results;
+}
+
+/**
+ * Resolve the query DSL string from a query block.
+ *
+ * In DB graphs, `logseq.property/query` is a reference ({db/id: N}),
+ * not the raw DSL string. We try multiple strategies:
+ * 1. getBlockProperty — SDK may resolve the reference to a string
+ * 2. Datascript query — resolve the reference entity's title/content
+ * 3. Block content fallback
+ */
+async function resolveQueryDSL(
+  uuid: string,
+  block: any
+): Promise<string | null> {
+  // Strategy 1: getBlockProperty may resolve the reference
+  try {
+    const val = await logseq.Editor.getBlockProperty(uuid, "logseq.property/query");
+    if (typeof val === "string" && val.trim()) return val.trim();
+  } catch { /* continue */ }
+
+  // Strategy 2: Use datascript to resolve the property value entity
+  try {
+    const result = await logseq.DB.datascriptQuery(`
+      [:find ?q .
+       :in $ ?uuid
+       :where
+       [?b :block/uuid ?uuid]
+       [?b :logseq.property/query ?qid]
+       [?qid :block/title ?q]]
+    `, `"${uuid}"`);
+    if (typeof result === "string" && result.trim()) return result.trim();
+  } catch { /* continue */ }
+
+  // Strategy 3: Try getBlockProperties and extract string from any format
+  try {
+    const props = await logseq.Editor.getBlockProperties(uuid);
+    for (const key of ["logseq.property/query", "query"]) {
+      const v = props?.[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      // Reference object — try extracting the title/content/name
+      if (v && typeof v === "object") {
+        const obj = v as Record<string, unknown>;
+        const str = (obj.title ?? obj.content ?? obj.name) as string | undefined;
+        if (typeof str === "string" && str.trim()) return str.trim();
+      }
+    }
+  } catch { /* continue */ }
+
+  // Strategy 4: Block content fallback (unlikely for query blocks)
+  if (typeof block.content === "string" && block.content.trim()) {
+    return block.content.trim();
+  }
+
+  return null;
 }
 
 /**
