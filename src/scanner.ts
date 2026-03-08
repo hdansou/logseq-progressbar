@@ -46,14 +46,45 @@ export async function scanQuery(
   const queryBlock = await logseq.Editor.getBlock(queryUUID);
   if (!queryBlock) return [];
 
-  // Extract the query DSL string — the property value is often a DB reference,
-  // not a raw string. Try multiple resolution strategies.
+  // Extract the query DSL string
   const queryStr = await resolveQueryDSL(queryUUID, queryBlock);
   if (!queryStr) return [];
 
-  // Execute the DSL query
-  const queryResults = await logseq.DB.q(queryStr);
-  if (!Array.isArray(queryResults)) return [];
+  console.log("[progress-bar] resolved query DSL:", queryStr);
+
+  // Try to execute the query — DB.q() may fail for complex DSL with
+  // (between ...) clauses since date bindings aren't provided by the plugin API.
+  let queryResults: any[] | null = null;
+
+  // Attempt 1: Execute the full DSL
+  try {
+    const res = await logseq.DB.q(queryStr);
+    if (Array.isArray(res)) queryResults = res;
+  } catch (e) {
+    console.warn("[progress-bar] DB.q() failed for full DSL:", e);
+  }
+
+  // Attempt 2: Strip (between ...) and retry with just tag/property filters
+  if (!queryResults) {
+    const simplified = stripBetweenClause(queryStr);
+    if (simplified !== queryStr) {
+      console.log("[progress-bar] retrying with simplified DSL:", simplified);
+      try {
+        const res = await logseq.DB.q(simplified);
+        if (Array.isArray(res)) queryResults = res;
+      } catch (e) {
+        console.warn("[progress-bar] DB.q() failed for simplified DSL:", e);
+      }
+    }
+  }
+
+  // Attempt 3: Extract tags from DSL and use getTagObjects as fallback
+  if (!queryResults) {
+    console.log("[progress-bar] falling back to getTagObjects");
+    queryResults = await queryByTagsFallback(queryStr);
+  }
+
+  if (!queryResults?.length) return [];
 
   const results: BlockData[] = [];
   for (const block of queryResults) {
@@ -62,6 +93,50 @@ export async function scanQuery(
     if (bd) results.push(bd);
   }
   return results;
+}
+
+/**
+ * Remove (between ...) clauses from DSL, since DB.q() can't bind dates.
+ * E.g. "(and (tags [[Task]]) (between [[x]] [[y]]))" → "(tags [[Task]])"
+ */
+function stripBetweenClause(dsl: string): string {
+  // Remove (between ...) including nested parens
+  let result = dsl.replace(/\(\s*between\s+[^)]*\)/gi, "").trim();
+  // Clean up leftover (and X) → X
+  result = result.replace(/\(\s*and\s+(\([^)]*\))\s*\)/g, "$1").trim();
+  // Clean up empty (and) → remove
+  result = result.replace(/\(\s*and\s*\)/g, "").trim();
+  return result || dsl;
+}
+
+/**
+ * Extract tag names from DSL like "(tags [[Task]])" and use getTagObjects.
+ */
+async function queryByTagsFallback(dsl: string): Promise<any[]> {
+  const tagMatches = dsl.match(/\[\[([^\]]+)\]\]/g);
+  if (!tagMatches?.length) return [];
+
+  const tagNames = tagMatches.map((m) => m.slice(2, -2));
+  const results: any[] = [];
+
+  for (const tagName of tagNames) {
+    try {
+      const objects = await logseq.Editor.getTagObjects(tagName);
+      if (Array.isArray(objects)) {
+        results.push(...objects);
+      }
+    } catch (e) {
+      console.log(`[progress-bar] getTagObjects("${tagName}") error:`, e);
+    }
+  }
+
+  // Deduplicate by uuid
+  const seen = new Set<string>();
+  return results.filter((b) => {
+    if (!b?.uuid || seen.has(b.uuid)) return false;
+    seen.add(b.uuid);
+    return true;
+  });
 }
 
 /**
