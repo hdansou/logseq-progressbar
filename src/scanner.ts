@@ -76,23 +76,20 @@ async function resolveQueryDSL(
   uuid: string,
   _block: any
 ): Promise<string | null> {
-  // Strategy 1: Pull full block entity via datascript and inspect all attributes
+  // Strategy 1: Pull full block entity with inlined UUID (avoids :in parameter issues)
   try {
     const pulled = await logseq.DB.datascriptQuery(`
       [:find (pull ?b [*]) .
-       :in $ ?uuid
        :where
-       [?b :block/uuid ?uuid]]
-    `, `#uuid "${uuid}"`);
-    console.log("[progress-bar] pulled block entity keys:", pulled ? Object.keys(pulled) : "null");
+       [?b :block/uuid #uuid "${uuid}"]]
+    `);
+    console.log("[progress-bar] pulled entity keys:", pulled ? Object.keys(pulled) : "null");
     if (pulled) {
-      // Log all keys that might contain the query
       for (const [k, v] of Object.entries(pulled)) {
         if (k.toLowerCase().includes("query") || k.includes("logseq.property")) {
           console.log(`[progress-bar] entity["${k}"]:`, typeof v, v);
         }
       }
-      // Try to find the query DSL in the pulled entity
       const dsl = findDSLInEntity(pulled);
       if (dsl) return dsl;
     }
@@ -100,16 +97,15 @@ async function resolveQueryDSL(
     console.log("[progress-bar] pull entity error:", e);
   }
 
-  // Strategy 2: Datascript — resolve the reference entity's title
+  // Strategy 2: Resolve the query reference entity's title via datascript
   try {
     const result = await logseq.DB.datascriptQuery(`
       [:find ?q .
-       :in $ ?uuid
        :where
-       [?b :block/uuid ?uuid]
+       [?b :block/uuid #uuid "${uuid}"]
        [?b :logseq.property/query ?qid]
        [?qid :block/title ?q]]
-    `, `#uuid "${uuid}"`);
+    `);
     console.log("[progress-bar] datascript resolve result:", typeof result, result);
     if (typeof result === "string" && result.trim().startsWith("(")) {
       return result.trim();
@@ -124,10 +120,10 @@ async function resolveQueryDSL(
     if (block) {
       console.log("[progress-bar] getBlock keys:", Object.keys(block));
       console.log("[progress-bar] getBlock properties:", block.properties);
-      const dsl = findDSLInEntity(block);
+      const dsl = findDSLInEntity(block as any);
       if (dsl) return dsl;
       if (block.properties) {
-        const dsl2 = findDSLInEntity(block.properties);
+        const dsl2 = findDSLInEntity(block.properties as any);
         if (dsl2) return dsl2;
       }
     }
