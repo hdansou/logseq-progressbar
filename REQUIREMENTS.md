@@ -11,21 +11,27 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 ## 1. Placement & Trigger Modes
 
 ### 1.1 Auto-Detect Mode
+
 - Automatically render a progress bar on any block/page whose descendants include blocks with configured tags.
 - The bar appears inline with the parent block content.
 
 ### 1.2 Manual Mode (Renderer Macro)
+
 - Insert via `{{renderer :progress-bar}}` — uses global plugin settings as defaults.
 - Supports per-instance overrides:
-  ```
+
+  ```txt
   {{renderer :progress-bar, tags: Task|Bug, property: status, depth: 2, complete: Done|Canceled}}
   ```
 
 ### 1.3 Query Integration
+
 - Attach a progress bar to a query block by UUID:
-  ```
+
+  ```txt
   {{renderer :progress-bar, query: <query-block-uuid>}}
   ```
+
 - The bar renders alongside the query block title (e.g., "Current Week Tasks").
 - The bar aggregates statuses from the query's result set.
 
@@ -44,20 +50,24 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 ## 3. Tag Scoping
 
 ### 3.1 Tag-to-Property Mapping
+
 - Users define which tags are in scope and which property each tag uses for progress tracking.
 - Example configuration:
-  | Tag       | Property   | Complete Values     |
-  |-----------|------------|---------------------|
-  | `Task`    | `status`   | `Done`              |
-  | `Project` | `state`    | `Completed`         |
-  | `Bug`     | `status`   | `Done`, `Canceled`  |
+
+  | Tag       | Property | Complete Values    |
+  | --------- | -------- | ------------------ |
+  | `Task`    | `status` | `Done`             |
+  | `Project` | `state`  | `Completed`        |
+  | `Bug`     | `status` | `Done`, `Canceled` |
 
 ### 3.2 Strict Filtering Mode
+
 - **Default (off)**: All children are included; the tag determines which property/value mapping to apply. Untagged blocks use the default mapping.
 - **Strict mode (on)**: Only blocks with matching tags are counted. Untagged blocks are excluded entirely.
 - Configurable globally and per-instance.
 
 ### 3.3 Blocks Without a Status Value
+
 - Blocks that match the tag scope but have no value set for the tracked property are **excluded** from the count.
 
 ---
@@ -65,16 +75,19 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 ## 4. Status Mapping & Completion
 
 ### 4.1 Built-in Status Support
+
 - Default integration with Logseq's built-in `:logseq.property/status` property:
   - Backlog, Todo, Doing, In Review, Done, Canceled.
 - Default "complete" value: `Done`.
 
 ### 4.2 Custom Property Support
+
 - Users can track any reference/enum property, not just `status`.
 - Example: a `state` property with values `Now`, `Next`, `Later`, `Completed`.
 - Users define which values count as "complete" per property.
 
 ### 4.3 User-Configurable Completion Mapping
+
 - In plugin settings, users map: `property → [complete values]`.
 - Per-instance override via renderer args: `complete: Done|Canceled`.
 
@@ -83,11 +96,13 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 ## 5. Visual Design
 
 ### 5.1 Bar Style
+
 - **Rounded pill shape** (border-radius on both ends).
 - **Segmented/stacked bar** — each status value gets its own colored segment.
 - Segments ordered left-to-right: **completed states on the left, pending states on the right**.
 
 ### 5.2 Percentage Label
+
 - Displayed on the right side of the bar.
 - Shows completion ratio: `Done / Total`.
 - **User-configurable display format**:
@@ -97,27 +112,32 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
   - Configurable in plugin settings; default: percentage only.
 
 ### 5.3 Colors
+
 - Sensible default palette that adapts to dark/light mode automatically.
 - Users can override colors per status value in plugin settings.
 - Default suggestions:
-  | Status     | Light Mode | Dark Mode  |
-  |------------|------------|------------|
-  | Done       | `#4ade80`  | `#22c55e`  |
-  | Doing/Now  | `#60a5fa`  | `#3b82f6`  |
-  | In Review  | `#facc15`  | `#eab308`  |
-  | Todo/Later | `#e2e8f0`  | `#475569`  |
-  | Backlog    | `#f1f5f9`  | `#334155`  |
-  | Canceled   | `#fca5a5`  | `#ef4444`  |
+
+  | Status     | Light Mode | Dark Mode |
+  | ---------- | ---------- | --------- |
+  | Done       | `#4ade80`  | `#22c55e` |
+  | Doing/Now  | `#60a5fa`  | `#3b82f6` |
+  | In Review  | `#facc15`  | `#eab308` |
+  | Todo/Later | `#e2e8f0`  | `#475569` |
+  | Backlog    | `#f1f5f9`  | `#334155` |
+  | Canceled   | `#fca5a5`  | `#ef4444` |
 
 ### 5.4 Size & Width
+
 - **Default**: Full width of the block content area.
 - **Compact mode**: Fixed or custom width (e.g., 200px), inline next to block title.
 - User-configurable: global setting + per-instance override.
 
 ### 5.5 Animation
+
 - Smooth CSS transitions when segment widths change (e.g., when a task is completed).
 
 ### 5.6 Theme Adaptation
+
 - Automatically adapts to Logseq's current theme (dark/light) via `App.onThemeModeChanged`.
 
 ---
@@ -125,9 +145,11 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 ## 6. Interactivity
 
 ### 6.1 Hover Tooltip
+
 - Hovering over the progress bar shows a tooltip with the full status breakdown.
 - Example tooltip:
-  ```
+  
+  ```txt
   Done: 7
   Doing: 2
   In Review: 1
@@ -137,6 +159,7 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
   ```
 
 ### 6.2 No Click Action
+
 - The bar is purely visual beyond the tooltip. No click interactions.
 
 ---
@@ -155,46 +178,46 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 ### 8.1 Global Plugin Settings
 
-| Setting                  | Type     | Default                | Description |
-|--------------------------|----------|------------------------|-------------|
-| `tagsInScope`            | string   | `"Task"`               | Comma-separated list of tags to track |
-| `propertyMappings`       | object   | `{"Task": "status"}`   | Tag-to-property mapping |
-| `completeValues`         | object   | `{"status": ["Done"]}` | Property-to-complete-values mapping |
-| `defaultDepth`           | string   | `"all"`                | Default scan depth (`"1"`, `"2"`, ..., `"all"`) |
-| `strictTagFilter`        | boolean  | `false`                | Only count blocks with matching tags |
-| `displayFormat`          | enum     | `"percent"`            | `"percent"`, `"fraction"`, `"both"` |
-| `barWidth`               | enum     | `"full"`               | `"full"`, `"compact"`, or pixel value |
-| `autoDetect`             | boolean  | `true`                 | Enable auto-detect mode |
-| `showOnEmpty`            | boolean  | `false`                | Show bar when zero matching blocks |
-| `colorOverrides`         | object   | `{}`                   | Per-status color overrides |
+| Setting            | Type    | Default                | Description                                     |
+| ------------------ | ------- | ---------------------- | ----------------------------------------------- |
+| `tagsInScope`      | string  | `"Task"`               | Comma-separated list of tags to track           |
+| `propertyMappings` | object  | `{"Task": "status"}`   | Tag-to-property mapping                         |
+| `completeValues`   | object  | `{"status": ["Done"]}` | Property-to-complete-values mapping             |
+| `defaultDepth`     | string  | `"all"`                | Default scan depth (`"1"`, `"2"`, ..., `"all"`) |
+| `strictTagFilter`  | boolean | `false`                | Only count blocks with matching tags            |
+| `displayFormat`    | enum    | `"percent"`            | `"percent"`, `"fraction"`, `"both"`             |
+| `barWidth`         | enum    | `"full"`               | `"full"`, `"compact"`, or pixel value           |
+| `autoDetect`       | boolean | `true`                 | Enable auto-detect mode                         |
+| `showOnEmpty`      | boolean | `false`                | Show bar when zero matching blocks              |
+| `colorOverrides`   | object  | `{}`                   | Per-status color overrides                      |
 
 ### 8.2 Per-Instance Renderer Overrides
 
 Supported params in `{{renderer :progress-bar, ...}}`:
 
-| Param       | Example                  | Description |
-|-------------|--------------------------|-------------|
-| `tags`      | `tags: Task\|Bug`        | Override tags in scope |
-| `property`  | `property: state`        | Override tracked property |
-| `complete`  | `complete: Done\|Canceled` | Override complete values |
-| `depth`     | `depth: 2`               | Override scan depth |
-| `strict`    | `strict: true`           | Override strict tag filter |
-| `format`    | `format: both`           | Override display format |
-| `width`     | `width: 200px`           | Override bar width |
-| `query`     | `query: <uuid>`          | Track a query's results |
+| Param      | Example                    | Description                |
+| ---------- | -------------------------- | -------------------------- |
+| `tags`     | `tags: Task\|Bug`          | Override tags in scope     |
+| `property` | `property: state`          | Override tracked property  |
+| `complete` | `complete: Done\|Canceled` | Override complete values   |
+| `depth`    | `depth: 2`                 | Override scan depth        |
+| `strict`   | `strict: true`             | Override strict tag filter |
+| `format`   | `format: both`             | Override display format    |
+| `width`    | `width: 200px`             | Override bar width         |
+| `query`    | `query: <uuid>`            | Track a query's results    |
 
 ---
 
 ## 9. Edge Cases
 
-| Scenario | Behavior |
-|----------|----------|
-| Zero matching blocks, `showOnEmpty: false` | Hide progress bar entirely |
-| Zero matching blocks, `showOnEmpty: true` | Show empty bar with 0% |
-| Block has matching tag but no property value | Exclude from count |
-| All items complete | Full green bar, 100% |
-| Query returns no results | Same as zero matching blocks |
-| Query block is deleted/invalid UUID | Show error indicator or hide |
+| Scenario                                     | Behavior                     |
+| -------------------------------------------- | ---------------------------- |
+| Zero matching blocks, `showOnEmpty: false`   | Hide progress bar entirely   |
+| Zero matching blocks, `showOnEmpty: true`    | Show empty bar with 0%       |
+| Block has matching tag but no property value | Exclude from count           |
+| All items complete                           | Full green bar, 100%         |
+| Query returns no results                     | Same as zero matching blocks |
+| Query block is deleted/invalid UUID          | Show error indicator or hide |
 
 ---
 
@@ -209,6 +232,7 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 ## 11. Technical Implementation Notes
 
 ### 11.1 Plugin API Usage
+
 - **Rendering**: `App.onMacroRendererSlotted` for `{{renderer :progress-bar}}` blocks.
 - **Auto-detect**: `App.onRouteChanged` + `DB.onChanged` to detect and render on matching pages/blocks.
 - **Query results**: `DB.datascriptQuery` or `DB.q` to fetch query result blocks by UUID.
@@ -219,7 +243,8 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 - **UI**: `provideUI` + `provideStyle` for rendering the bar and injecting CSS.
 
 ### 11.2 Renderer Macro Format
-```
+
+```txt
 {{renderer :progress-bar}}
 {{renderer :progress-bar, tags: Task|Bug, property: status}}
 {{renderer :progress-bar, query: 69acb093-df21-438d-9bae-72decf188ed2}}
@@ -227,7 +252,8 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 ```
 
 ### 11.3 Data Flow
-```
+
+```txt
 1. Trigger (route change / DB change / macro render)
 2. Resolve scope (parent block children, page blocks, or query results)
 3. Filter by tags in scope (strict or inclusive)

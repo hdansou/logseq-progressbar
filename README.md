@@ -13,11 +13,13 @@ Track progress derived from configurable properties (`status`, `state`, or any c
 ### From Local Build
 
 1. Clone the repo and build:
-   ```bash
-   cd logseq-progressbar
-   npm install
-   npm run build
-   ```
+
+  ```bash
+  cd logseq-progressbar
+  npm install
+  npm run build
+  ```
+
 2. In Logseq, go to **Settings → Advanced → Enable Developer mode**
 3. Open **Plugins** (three-dot menu → Plugins)
 4. Click the three-dot menu in the Plugins panel → **Load unpacked plugin**
@@ -45,7 +47,7 @@ Type `/progress-bar` in any block to insert a progress bar that tracks child blo
 
 Insert the macro directly:
 
-```
+```txt
 {{renderer :progress-bar}}
 ```
 
@@ -55,11 +57,11 @@ The bar scans descendant blocks for configured tags and aggregates their statuse
 
 Override any global setting per-instance:
 
-```
+```txt
 {{renderer :progress-bar, tags: Task|Bug, property: status, format: both}}
 ```
 
-```
+```txt
 {{renderer :progress-bar, tags: Project, property: state, complete: Completed, width: 300px}}
 ```
 
@@ -67,7 +69,7 @@ Override any global setting per-instance:
 
 Attach a progress bar to a Logseq query block by UUID:
 
-```
+```txt
 {{renderer :progress-bar, query: 69acb093-df21-438d-9bae-72decf188ed2}}
 ```
 
@@ -79,16 +81,16 @@ The bar aggregates statuses from the query's result set.
 
 All parameters are optional. Global plugin settings are used as defaults.
 
-| Param      | Example                    | Description                                    |
-|------------|----------------------------|------------------------------------------------|
-| `tags`     | `tags: Task\|Bug`          | Tags to track (pipe-separated)                 |
-| `property` | `property: state`          | Property to read for progress                  |
-| `complete` | `complete: Done\|Canceled` | Values that count as "complete" (pipe-separated)|
-| `depth`    | `depth: 2`                 | Scan depth (`1`, `2`, ..., or `all`)            |
-| `strict`   | `strict: true`             | Only count blocks with matching tags            |
-| `format`   | `format: both`             | Label format: `percent`, `fraction`, or `both`  |
-| `width`    | `width: 200px`             | Bar width: `full`, `compact`, or CSS value      |
-| `query`    | `query: <uuid>`            | Track a query block's results                   |
+| Param      | Example                    | Description                                      |
+| ---------- | -------------------------- | ------------------------------------------------ |
+| `tags`     | `tags: Task\|Bug`          | Tags to track (pipe-separated)                   |
+| `property` | `property: state`          | Property to read for progress                    |
+| `complete` | `complete: Done\|Canceled` | Values that count as "complete" (pipe-separated) |
+| `depth`    | `depth: 2`                 | Scan depth (`1`, `2`, ..., or `all`)             |
+| `strict`   | `strict: true`             | Only count blocks with matching tags             |
+| `format`   | `format: both`             | Label format: `percent`, `fraction`, or `both`   |
+| `width`    | `width: 200px`             | Bar width: `full`, `compact`, or CSS value       |
+| `query`    | `query: <uuid>`            | Track a query block's results                    |
 
 ---
 
@@ -98,22 +100,22 @@ Open **Plugins → Progress Bar → Settings** to configure global defaults.
 
 ### Tag & Property Configuration
 
-| Setting             | Default              | Description                                              |
-|---------------------|----------------------|----------------------------------------------------------|
-| Tags in Scope       | `Task`               | Comma-separated tag names to track                       |
-| Property Mappings   | `{"Task": "status"}` | JSON mapping each tag to its progress property           |
-| Complete Values     | `{"status": ["Done"]}`| JSON mapping each property to its "complete" values     |
+| Setting           | Default                | Description                                         |
+| ----------------- | ---------------------- | --------------------------------------------------- |
+| Tags in Scope     | `Task`                 | Comma-separated tag names to track                  |
+| Property Mappings | `{"Task": "status"}`   | JSON mapping each tag to its progress property      |
+| Complete Values   | `{"status": ["Done"]}` | JSON mapping each property to its "complete" values |
 
 ### Display Settings
 
-| Setting              | Default   | Description                                           |
-|----------------------|-----------|-------------------------------------------------------|
-| Default Scan Depth   | `all`     | How deep to scan (`all` or a number)                  |
-| Strict Tag Filtering | `false`   | Exclude untagged blocks from the count                |
-| Display Format       | `percent` | `percent` (54%), `fraction` (7/13), or `both`         |
-| Bar Width            | `full`    | `full` (100% width) or `compact` (inline)             |
-| Auto-Detect Mode     | `true`    | Auto-show bars on blocks with tagged children         |
-| Show on Empty        | `false`   | Show an empty 0% bar when no items match              |
+| Setting              | Default   | Description                                   |
+| -------------------- | --------- | --------------------------------------------- |
+| Default Scan Depth   | `all`     | How deep to scan (`all` or a number)          |
+| Strict Tag Filtering | `false`   | Exclude untagged blocks from the count        |
+| Display Format       | `percent` | `percent` (54%), `fraction` (7/13), or `both` |
+| Bar Width            | `full`    | `full` (100% width) or `compact` (inline)     |
+| Auto-Detect Mode     | `true`    | Auto-show bars on blocks with tagged children |
+| Show on Empty        | `false`   | Show an empty 0% bar when no items match      |
 
 ### Color Overrides
 
@@ -130,14 +132,14 @@ Override segment colors per status value (JSON):
 
 ## Default Colors
 
-| Status     | Light Mode | Dark Mode |
-|------------|------------|-----------|
-| Done       | #4ade80    | #22c55e   |
-| Doing / Now| #60a5fa    | #3b82f6   |
-| In Review  | #facc15    | #eab308   |
-| Todo / Later| #e2e8f0   | #475569   |
-| Backlog    | #f1f5f9    | #334155   |
-| Canceled   | #fca5a5    | #ef4444   |
+| Status       | Light Mode | Dark Mode |
+| ------------ | ---------- | --------- |
+| Done         | #4ade80    | #22c55e   |
+| Doing / Now  | #60a5fa    | #3b82f6   |
+| In Review    | #facc15    | #eab308   |
+| Todo / Later | #e2e8f0    | #475569   |
+| Backlog      | #f1f5f9    | #334155   |
+| Canceled     | #fca5a5    | #ef4444   |
 
 Colors adapt automatically to Logseq's dark/light theme.
 
@@ -161,7 +163,7 @@ Colors adapt automatically to Logseq's dark/light theme.
 
 ### Track tasks under a project block
 
-```
+```txt
 - Project Alpha #Project
   - Design UI #Task (status: Done)
   - Implement API #Task (status: Doing)
@@ -173,7 +175,7 @@ Result: segmented bar showing 1/3 complete (33%).
 
 ### Track with custom property
 
-```
+```txt
 - Q1 Goals
   - Launch product #Project (state: Completed)
   - Hire team #Project (state: Now)
@@ -183,7 +185,7 @@ Result: segmented bar showing 1/3 complete (33%).
 
 ### Compact inline bar with fraction
 
-```
+```txt
 - Sprint 12 {{renderer :progress-bar, format: fraction, width: 200px}}
   - Fix login bug #Task (status: Done)
   - Add search #Task (status: Doing)
@@ -196,7 +198,7 @@ Result: segmented bar showing 1/3 complete (33%).
 
 ### Project Structure
 
-```
+```txt
 src/
 ├── types.ts        — Shared TypeScript types
 ├── parser.ts       — Renderer macro argument parser
