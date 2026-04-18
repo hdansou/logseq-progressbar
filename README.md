@@ -1,5 +1,7 @@
 # Logseq Progress Bar Plugin
 
+![Logseq Progress Bar](icon.svg)
+
 Visualize task completion as segmented progress bars in Logseq DB graphs.
 
 Track progress derived from configurable properties (`status`, `state`, or any custom enum) on blocks with specified tags (`#Task`, `#Project`, etc.). Supports manual placement, query integration, and real-time updates.
@@ -14,11 +16,11 @@ Track progress derived from configurable properties (`status`, `state`, or any c
 
 1. Clone the repo and build:
 
-  ```bash
-  cd logseq-progressbar
-  npm install
-  npm run build
-  ```
+   ```bash
+   cd logseq-progressbar
+   npm install
+   npm run build
+   ```
 
 2. In Logseq, go to **Settings → Advanced → Enable Developer mode**
 3. Open **Plugins** (three-dot menu → Plugins)
