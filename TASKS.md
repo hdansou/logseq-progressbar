@@ -158,3 +158,24 @@
   - [ ] Children scan mode verified
   - [ ] Visual rendering verified
 - [ ] **5.5** Publish to Logseq marketplace (or prepare for manual install)
+
+---
+
+## Phase 6: SDK Upgrade to `@logseq/libs` 0.3.2
+
+- [x] **6.1** Write failing manifest test (`src/__tests__/manifest.test.ts`)
+  - Asserts declared range admits `0.3.2`, installed SDK is `0.3.2`, and `logseq` block declares `supportsDB`, `supportsDBOnly`, `minSDKVersion`
+- [x] **6.2** Bump `@logseq/libs` dependency from `^0.2.8` to `^0.3.2` and reinstall
+- [x] **6.3** Add DB-graph manifest fields to `package.json#logseq`: `supportsDB: true`, `supportsDBOnly: true`, `minSDKVersion: "0.3.2"`
+- [x] **6.4** Confirm manifest test passes (5/5 green)
+- [x] **6.5** Confirm full suite (65 tests) and `npm run build` succeed
+- [ ] **6.6** Smoke-test against a Logseq build that ships the 0.3.x host — **blocked on live environment**
+  - Static verification done: `npm test` (65/65), `npm run build` clean
+  - Live checks (require `yarn watch` in the Logseq repo serving on `localhost:3001`):
+    - MessageChannel handshake completes (no stuck-in-pending plugin)
+    - `onMacroRendererSlotted` fires on `{{renderer :progress-bar}}`
+    - `DB.onChanged` triggers re-render on status flip
+    - `onSettingsChanged` triggers `rerenderAll` (args-less callback)
+    - `UI.checkSlotValid` still drops stale slots
+- [ ] **6.7** *(optional follow-up)* migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`
+- [ ] **6.8** *(optional follow-up)* evaluate `Experiments.registerHostedRenderer` for a settings/summary panel

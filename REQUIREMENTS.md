@@ -6,6 +6,8 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 **Target platform**: Logseq DB graphs only (not file-based graphs).
 
+**SDK**: `@logseq/libs ^0.3.2`. The plugin manifest declares `supportsDB: true`, `supportsDBOnly: true`, and `minSDKVersion: "0.3.2"` in `package.json#logseq`.
+
 ---
 
 ## 1. Placement & Trigger Modes
@@ -233,14 +235,17 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 
 ### 11.1 Plugin API Usage
 
+Targets `@logseq/libs ^0.3.2`. All API calls below are stable across 0.2.x → 0.3.x.
+
 - **Rendering**: `App.onMacroRendererSlotted` for `{{renderer :progress-bar}}` blocks.
 - **Auto-detect**: `App.onRouteChanged` + `DB.onChanged` to detect and render on matching pages/blocks.
-- **Query results**: `DB.datascriptQuery` or `DB.q` to fetch query result blocks by UUID.
+- **Query results**: `DB.datascriptQuery` to fetch query result blocks by UUID.
 - **Properties**: `Editor.getBlockProperties` / `Editor.getTagObjects` for reading status values.
 - **Tags**: `Editor.getTag` / `Editor.getTagsByName` for tag resolution.
-- **Settings**: `useSettingsSchema` for the global settings panel.
+- **Settings**: `useSettingsSchema` + `onSettingsChanged` for the global settings panel. Under 0.3.x, `onSettingsChanged` is invoked with clean `(nextSettings, previousSettings)` snapshots; the plugin's args-less handler is unaffected.
 - **Theme**: `App.onThemeModeChanged` for dark/light adaptation.
-- **UI**: `provideUI` + `provideStyle` for rendering the bar and injecting CSS.
+- **UI**: `provideUI` + `provideStyle` for rendering the bar and injecting CSS. `UI.checkSlotValid` drops stale slots before re-render.
+- **Transport**: The 0.3.x host uses MessageChannel-based plugin ↔ core transport (with postmate fallback); transparent to this plugin.
 
 ### 11.2 Renderer Macro Format
 

@@ -32,10 +32,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   - Query integration: `query: <uuid>` param fetches query results
   - Real-time updates via `DB.onChanged` event listener
   - Settings change reactivity — bars re-render on settings update
-- **Unit tests** — 60 tests across 5 test files
-  - Parser: 18 tests, Config: 10 tests, Aggregator: 12 tests, Colors: 11 tests, Renderer: 9 tests
+- **Unit tests** — 65 tests across 6 test files
+  - Parser: 18, Config: 10, Aggregator: 12, Colors: 11, Renderer: 9, Manifest: 5
+- **DB-graph manifest** — declared `supportsDB`, `supportsDBOnly`, and `minSDKVersion: 0.3.2` in `package.json#logseq`
 - Project scaffolding: Vite + TypeScript, package.json, tsconfig, index.html
 - README.md with usage, settings reference, and examples
+
+### Changed
+- **SDK upgrade** — bumped `@logseq/libs` from `^0.2.8` → `^0.3.2`. No source changes required; the plugin's API surface (Editor, DB, App, UI, provide*, settings lifecycle) is unchanged between 0.2.x and 0.3.x. Host transport moved to MessageChannel (transparent with fallback); `onSettingsChanged` now emits clean `(next, prev)` snapshots (no impact — handler is args-less)
 
 ### Fixed
 - **Plugin handshake timeout** — migrated to `vite-plugin-logseq`, upgraded `@logseq/libs` to `^0.2.8`, changed dev script to `vite build --watch`
