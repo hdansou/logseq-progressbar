@@ -177,5 +177,5 @@
     - `DB.onChanged` triggers re-render on status flip
     - `onSettingsChanged` triggers `rerenderAll` (args-less callback)
     - `UI.checkSlotValid` still drops stale slots
-- [ ] **6.7** *(optional follow-up)* migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`
+- [ ] **6.7** ~~migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`~~ — **blocked upstream.** A probe against a live DB graph (`Logseq-DB.app`, SDK 0.3.2) on the DSL `(task "Done" "Doing" "Todo")` returned `[null, <cljs Atom internals>]` — the host-side `custom_query` in `logseq/api/db.cljs` is serializing the reactive wrapper instead of its deref'd value, even with `:return-promise? true`. Keep the hand-rolled parser until the host is fixed. File/track an upstream issue.
 - [ ] **6.8** *(optional follow-up)* evaluate `Experiments.registerHostedRenderer` for a settings/summary panel
