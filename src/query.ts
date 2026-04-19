@@ -103,6 +103,58 @@ export function dslToBlockQuery(
   return `[:find (pull ?b [*])\n :where\n ${where.join("\n ")}]`;
 }
 
+export interface BlockData {
+  uuid: string;
+  tags: string[];
+  properties: Record<string, unknown>;
+}
+
+export function entityToBlockData(entity: unknown): BlockData | null {
+  if (entity === null || typeof entity !== "object") return null;
+  const e = entity as Record<string, unknown>;
+
+  const uuid = pickKey(e, "block/uuid");
+  if (typeof uuid !== "string" || uuid.length === 0) return null;
+
+  const rawTags = pickKey(e, "block/tags");
+  const tags = Array.isArray(rawTags)
+    ? rawTags
+        .map((t) =>
+          t && typeof t === "object"
+            ? (pickKey(t as Record<string, unknown>, "block/title") as
+                | string
+                | undefined)
+            : undefined
+        )
+        .filter((t): t is string => typeof t === "string")
+    : [];
+
+  const properties: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(e)) {
+    const stripped = key.startsWith(":") ? key.slice(1) : key;
+    if (stripped.startsWith("logseq.property/")) {
+      properties[stripped] = resolvePropValue(val);
+    }
+  }
+
+  return { uuid, tags, properties };
+}
+
+function resolvePropValue(val: unknown): unknown {
+  if (val !== null && typeof val === "object" && !Array.isArray(val)) {
+    const title = pickKey(val as Record<string, unknown>, "block/title");
+    if (typeof title === "string") return title;
+  }
+  return val;
+}
+
+function pickKey(obj: Record<string, unknown>, name: string): unknown {
+  if (name in obj) return obj[name];
+  const colonKey = `:${name}`;
+  if (colonKey in obj) return obj[colonKey];
+  return undefined;
+}
+
 function findMatchingBracket(s: string, startIdx: number): number {
   let depth = 0;
   let i = startIdx;
