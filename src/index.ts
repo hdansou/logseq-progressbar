@@ -48,7 +48,10 @@ async function main() {
     args: string[],
     blockUuid: string
   ) {
-    const instanceId = `pb-${blockUuid}`;
+    // Slot-scoped key — Logseq query-class blocks render the same block title
+    // through multiple slot instances; a block-scoped key would cause the bar
+    // to appear in each slot and look doubled.
+    const instanceId = `pb-${slot}`;
 
     try {
       const globalConfig = readGlobalConfig();

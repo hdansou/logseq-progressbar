@@ -158,6 +158,23 @@ export function dslToBlockQuery(
   return `[:find (pull ?b ${pullSpec})\n :where\n ${where.join("\n ")}]`;
 }
 
+/**
+ * Inject ref-resolution hints into a user-supplied datalog query's `(pull ?x [*])`
+ * so block entities come back with `:logseq.property/<tracked>` and `:block/tags`
+ * already resolved to their `:block/title` strings. Without this, wildcard pull
+ * returns refs as `{:db/id N}` stubs and the aggregator sees no status values.
+ *
+ * No-op for explicit pull specs — merging attrs into an arbitrary spec would
+ * need a real EDN parser (YAGNI).
+ */
+export function enrichPull(datalog: string, trackedProperty: string): string {
+  const hints = `{:block/tags [:block/title]} {:logseq.property/${trackedProperty} [:block/title]}`;
+  return datalog.replace(
+    /\(pull\s+(\?\w+)\s+\[\*\]\)/g,
+    `(pull $1 [* ${hints}])`
+  );
+}
+
 export interface BlockData {
   uuid: string;
   tags: string[];

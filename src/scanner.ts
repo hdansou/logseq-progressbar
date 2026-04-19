@@ -3,6 +3,7 @@ import { aggregate } from "./aggregator";
 import {
   classifyQuery,
   dslToBlockQuery,
+  enrichPull,
   entityToBlockData,
   extractDatalogVector,
   parseDSL,
@@ -42,10 +43,10 @@ export async function countQueryStatuses(
         break;
       }
       case "datalog-map":
-        datalog = extractDatalogVector(raw);
+        datalog = enrichPull(extractDatalogVector(raw), trackedProperty);
         break;
       case "datalog-vec":
-        datalog = raw.trim();
+        datalog = enrichPull(raw.trim(), trackedProperty);
         break;
       default:
         return emptyStatusCounts();
