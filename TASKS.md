@@ -177,7 +177,7 @@
     - `DB.onChanged` triggers re-render on status flip
     - `onSettingsChanged` triggers `rerenderAll` (args-less callback)
     - `UI.checkSlotValid` still drops stale slots
-- [ ] **6.7** ~~migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`~~ — **superseded by Phase 7.** Rather than depend on `DB.customQuery` (which returns an unwrapped tuple from `query-custom/custom-query` that `flatten` in `db.cljs:45-51` can't resolve), we collapse query mode onto the proven `DB.datascriptQuery` + `aggregate()` pipeline. See Phase 7.
+- [x] **6.7** ~~migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`~~ — **superseded and closed.** Delivered equivalent capability in Phase 7 via `DB.datascriptQuery` + `aggregate()`. Avoids the host-side `custom_query` tuple-unwrap concern entirely.
 - [ ] **6.8** *(optional follow-up)* evaluate `Experiments.registerHostedRenderer` for a settings/summary panel
 
 ---
@@ -195,56 +195,33 @@
 
 ### 7.1 Query classifier (pure) — RED → GREEN → REFACTOR
 
-- [ ] **7.1.1** RED: new `src/__tests__/query-classify.test.ts` with cases:
-  - `"(task \"Todo\" \"Done\")"` → `"dsl"`
-  - `"{:query [:find (pull ?b [*]) :where …]}"` → `"datalog-map"`
-  - `"  \n  [:find (pull ?b [*]) :where …]"` → `"datalog-vec"` (leading whitespace tolerated)
-  - `""` / whitespace-only → `"empty"`
-  - `"garbage"` → `"unknown"`
-- [ ] **7.1.2** GREEN: implement `classifyQuery(raw: string): "dsl" | "datalog-map" | "datalog-vec" | "empty" | "unknown"` in new `src/query.ts`. First non-whitespace char switch: `(` → dsl, `{` → map, `[` → vec.
-- [ ] **7.1.3** REFACTOR: ensure single-responsibility; export only classifier.
+- [x] **7.1.1** RED: `src/__tests__/query-classify.test.ts` — 6 cases covering dsl / datalog-map / datalog-vec / empty / unknown, including leading whitespace.
+- [x] **7.1.2** GREEN: `classifyQuery` in new `src/query.ts`.
+- [x] **7.1.3** REFACTOR: single-responsibility classifier; exported.
 
 ### 7.2 Map unwrapper (pure) — RED → GREEN → REFACTOR
 
-- [ ] **7.2.1** RED: cases in `src/__tests__/query-unwrap.test.ts`:
-  - `"{:query [:find (pull ?b [*]) :where [?b :logseq.property/status ?s]]}"` → `"[:find (pull ?b [*]) :where [?b :logseq.property/status ?s]]"`
-  - Wrapper with `:inputs`: `"{:query […] :inputs [:today]}"` → inner `:query` vector only (inputs ignored — YAGNI; document limitation)
-  - User's example (nested `or` with `:db/ident` keywords) round-trips byte-identical
-  - Malformed map (no `:query` key) → throws `QueryParseError`
-- [ ] **7.2.2** GREEN: `extractDatalogVector(raw: string): string` — locate `:query`, then bracket-balance forward to find the matching `]` of the outer `[…]` vector. No full EDN parser (YAGNI).
-- [ ] **7.2.3** REFACTOR: extract bracket-balance helper if a second caller appears; otherwise inline.
+- [x] **7.2.1** RED: `src/__tests__/query-unwrap.test.ts` — 7 cases, including user's nested `(or … :db/ident)` example and `:inputs`-with-ignored-extras.
+- [x] **7.2.2** GREEN: `extractDatalogVector` — regex-find `:query\s*\[` then escape-aware bracket-balance.
+- [x] **7.2.3** REFACTOR: `findMatchingBracket` helper kept private; single caller for now.
 
 ### 7.3 DSL → block-pull datalog (pure) — RED → GREEN → REFACTOR
 
-- [ ] **7.3.1** RED: `src/__tests__/dsl-to-datalog.test.ts`:
-  - `(task "Todo" "Done")` → datalog vector containing `(pull ?b [*])` and `:logseq.property/status` binding with `?s :block/title` in `("Todo" "Done")`
-  - `(and (task "Done") (tags [[Task]]))` → adds tag join
-  - `(between [[journal-uuid-1]] [[journal-uuid-2]])` → adds `:block/journal-day` range
-  - `(property :priority "high")` → adds property filter
-  - Empty DSL → throws `QueryParseError`
-- [ ] **7.3.2** GREEN: rewrite `buildStatusCountQuery` → `dslToBlockQuery(parsed: ParsedDSL, config): string`. **Key change:** emit `:find (pull ?b [*])` instead of `:find ?status (count ?b)`. Aggregation moves to `aggregate()`.
-- [ ] **7.3.3** REFACTOR: keep `parseDSL` unchanged; it's already tested-via-usage. Delete the old aggregate-in-datalog code path.
+- [x] **7.3.1** RED: `src/__tests__/dsl-to-datalog.test.ts` — 9 cases covering `(task …)`, `(tags …)`, `(between …)`, `(property …)`, and error path for empty `trackedProperty`.
+- [x] **7.3.2** GREEN: `dslToBlockQuery` emits `:find (pull ?b [*])` (not count); aggregation moves to `aggregate()`.
+- [x] **7.3.3** REFACTOR: `parseDSL` + `ParsedDSL` moved to `query.ts` as canonical home. Old count-shaped datalog path deleted in 7.5.
 
 ### 7.4 Entity → BlockData adapter (pure) — RED → GREEN → REFACTOR
 
-- [ ] **7.4.1** RED: `src/__tests__/entity-to-blockdata.test.ts`:
-  - Entity with `:block/uuid`, `:block/tags` (array of refs with `:block/title`), `:logseq.property/status` (ref with `:block/title "Done"`) → `BlockData` with `tags: ["Task"]`, `properties: { "logseq.property/status": "Done" }`
-  - Entity with plain-string status → preserved as string
-  - Entity missing tags → `tags: []`
-  - Entity missing uuid → `null` (skip)
-- [ ] **7.4.2** GREEN: `entityToBlockData(entity: unknown): BlockData | null` in `src/query.ts`. Small mapper — walk known keys, extract titles from refs.
-- [ ] **7.4.3** REFACTOR: ensure shape matches what `aggregate()` already expects (check `aggregator.ts:3-7` + `readPropertyValue`).
+- [x] **7.4.1** RED: `src/__tests__/entity-to-blockdata.test.ts` — 6 cases: ref tags, ref+string properties, missing tags, missing uuid, non-object inputs, leading-colon key fallback.
+- [x] **7.4.2** GREEN: `entityToBlockData` resolves ref titles to strings at the adapter boundary so `aggregate()` stays shape-ignorant. Tolerates both `"block/uuid"` and `":block/uuid"` key shapes.
+- [x] **7.4.3** REFACTOR: property values normalized to strings (not refs) before handing to `aggregate()` — matches `readPropertyValue` expectations.
 
 ### 7.5 Integration: `countQueryStatuses` rewrite — RED → GREEN → REFACTOR
 
-- [ ] **7.5.1** RED: `src/__tests__/scanner-query.test.ts` with mocked `logseq.DB.datascriptQuery` + `logseq.Editor.getBlock`:
-  - DSL query block → aggregator reaches correct counts
-  - User's custom datalog map query → aggregator reaches correct counts
-  - Bare datalog vector → aggregator reaches correct counts
-  - Unresolvable query → `emptyStatusCounts()` (no throw)
-  - Runtime datascript error → `emptyStatusCounts()` + `console.error`
-- [ ] **7.5.2** GREEN: rewrite `countQueryStatuses` as the thin pipeline `extractRawQuery → classify → toDatalog → datascriptQuery → entities.map(entityToBlockData) → aggregate(blocks, config)`.
-- [ ] **7.5.3** REFACTOR: delete dead code — `buildStatusCountQuery`, `transformCountResults`, the status-title union branches. Scanner should shrink by ~80 LOC.
+- [x] **7.5.1** RED: `src/__tests__/scanner-query.test.ts` — 5 cases with mocked `logseq.DB.datascriptQuery` + `logseq.Editor.getBlock` covering DSL, datalog-map, datalog-vec, unresolvable, and runtime-error paths.
+- [x] **7.5.2** GREEN: `countQueryStatuses` becomes the thin `resolveQueryRaw → classify → toBlockDatalog → datascriptQuery → rowsToBlocks → aggregate` pipeline.
+- [x] **7.5.3** REFACTOR: deleted `buildStatusCountQuery`, `transformCountResults`, old count-aggregate code path; widened resolver to accept `(`/`{`/`[` openers. Net: scanner.ts −170 LOC.
 
 ### 7.6 Live smoke (manual, in Logseq DB graph)
 
@@ -256,9 +233,9 @@
 
 ### 7.7 Docs + cleanup
 
-- [ ] **7.7.1** Update `REQUIREMENTS.md` §1.3 — document that Query Integration accepts both DSL and custom datascript forms; note the `(pull ?b [*])` contract; note `:inputs` is not supported (YAGNI).
-- [ ] **7.7.2** CHANGELOG entry for this release.
-- [ ] **7.7.3** Delete the parked upstream-bug note (6.7) once 7.5 merges — the whole premise goes away.
+- [x] **7.7.1** `REQUIREMENTS.md` §1.3 updated — both DSL and custom datascript forms documented, `(pull ?b [*])` contract called out, `:inputs` listed as a non-goal.
+- [x] **7.7.2** `CHANGELOG.md` Unreleased section gained an "Unified query mode (Phase 7)" entry covering added modules, LOC delta, and test counts.
+- [x] **7.7.3** 6.7 parked-note premise removed — item closed and cross-references Phase 7.
 
 ### Non-goals (YAGNI, explicit)
 

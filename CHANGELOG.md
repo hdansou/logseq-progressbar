@@ -10,6 +10,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Added
+- **Unified query mode** (Phase 7) — query blocks can now use either the simple DSL (`(task "Todo" "Done")`) or a full custom datascript query as a `{:query [:find … :where …]}` map or bare `[:find … :where …]` vector. Results are pulled as block entities and grouped/counted in the plugin via `aggregate()`, sharing the exact code path used by children and page modes.
+  - New `src/query.ts` module: `classifyQuery`, `extractDatalogVector`, `parseDSL`, `dslToBlockQuery`, `entityToBlockData`, `QueryParseError`.
+  - `scanner.ts` shrinks ~170 LOC; `buildStatusCountQuery` and `transformCountResults` removed.
+  - TDD coverage: 5 new test files (33 tests) across classifier, map unwrapper, DSL-to-datalog, entity adapter, and scanner integration with mocked `DB.datascriptQuery`.
+
+### Removed
+- The in-DB `[status, count]` aggregation datalog that only worked for DSL queries. Counting now happens in JS after pulling block entities — one grouping engine for every scan mode.
+
+### Changed
+- Query-block raw-string resolution now accepts any of `(`, `{`, `[` as a valid query opener (DSL, datalog map, or bare datalog vector).
+
+### Added
 - **Core data layer** (Phase 1)
   - Renderer macro argument parser with pipe-delimited value support (`src/parser.ts`)
   - Plugin settings schema with 12 configurable options (`src/config.ts`)

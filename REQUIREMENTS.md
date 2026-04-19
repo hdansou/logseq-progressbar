@@ -28,7 +28,8 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 ### 1.3 Query Integration
 
-- Attach a progress bar to a query block by UUID:
+- Attach a progress bar to a query block — either by including the renderer
+  in the query block's own title, or by referencing the block UUID:
 
   ```txt
   {{renderer :progress-bar, query: <query-block-uuid>}}
@@ -36,6 +37,13 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 - The bar renders alongside the query block title (e.g., "Current Week Tasks").
 - The bar aggregates statuses from the query's result set.
+- **Both query forms are supported**:
+  - **DSL** — the Logseq simple-query syntax, e.g. `(task "Todo" "Doing")`, `(and (task "Done") (tags [[Project]]))`, `(between [[journal-uuid-1]] [[journal-uuid-2]])`.
+  - **Custom datascript** — full datalog, either as a `{:query [:find … :where …]}` map or a bare `[:find … :where …]` vector. The `:find` clause must pull blocks, typically `(pull ?b [*])`.
+- Results are grouped by the tracked property and counted in the plugin;
+  the progress bar reflects the query's result set regardless of form.
+- **Not supported** (non-goals): `:inputs` parameter binding, non-pull
+  `:find` shapes. Parametrized queries should inline their values.
 
 ---
 
