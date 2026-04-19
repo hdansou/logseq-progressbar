@@ -177,5 +177,92 @@
     - `DB.onChanged` triggers re-render on status flip
     - `onSettingsChanged` triggers `rerenderAll` (args-less callback)
     - `UI.checkSlotValid` still drops stale slots
-- [ ] **6.7** ~~migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`~~ — **blocked upstream.** A probe against a live DB graph (`Logseq-DB.app`, SDK 0.3.2) on the DSL `(task "Done" "Doing" "Todo")` returned `[null, <cljs Atom internals>]` — the host-side `custom_query` in `logseq/api/db.cljs` is serializing the reactive wrapper instead of its deref'd value, even with `:return-promise? true`. Keep the hand-rolled parser until the host is fixed. File/track an upstream issue.
+- [ ] **6.7** ~~migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`~~ — **superseded by Phase 7.** Rather than depend on `DB.customQuery` (which returns an unwrapped tuple from `query-custom/custom-query` that `flatten` in `db.cljs:45-51` can't resolve), we collapse query mode onto the proven `DB.datascriptQuery` + `aggregate()` pipeline. See Phase 7.
 - [ ] **6.8** *(optional follow-up)* evaluate `Experiments.registerHostedRenderer` for a settings/summary panel
+
+---
+
+## Phase 7: Unified query mode — DSL + custom datascript (TDD)
+
+> **Goal:** a single pipeline handles both simple DSL queries (`(task "Todo")`) and custom datascript queries (`{:query [:find … :where …]}` or bare `[:find …]`) attached to a Logseq query block, grouping results by a tracked property and counting — KISS, DRY, YAGNI.
+>
+> **Architecture:**
+> `queryBlockUUID → extractRawQuery → classify → toDatalog → datascriptQuery → entityToBlockData[] → aggregate() → StatusCounts → renderer`
+>
+> All DB work goes through `logseq.DB.datascriptQuery` (no `DB.customQuery`, no host-side bugs). Aggregation reuses `src/aggregator.ts` — zero duplication with children/page modes.
+>
+> **TDD discipline:** every task below starts RED (failing test first), then GREEN (minimal impl), then REFACTOR. Commit per task. No implementation before a failing test exists.
+
+### 7.1 Query classifier (pure) — RED → GREEN → REFACTOR
+
+- [ ] **7.1.1** RED: new `src/__tests__/query-classify.test.ts` with cases:
+  - `"(task \"Todo\" \"Done\")"` → `"dsl"`
+  - `"{:query [:find (pull ?b [*]) :where …]}"` → `"datalog-map"`
+  - `"  \n  [:find (pull ?b [*]) :where …]"` → `"datalog-vec"` (leading whitespace tolerated)
+  - `""` / whitespace-only → `"empty"`
+  - `"garbage"` → `"unknown"`
+- [ ] **7.1.2** GREEN: implement `classifyQuery(raw: string): "dsl" | "datalog-map" | "datalog-vec" | "empty" | "unknown"` in new `src/query.ts`. First non-whitespace char switch: `(` → dsl, `{` → map, `[` → vec.
+- [ ] **7.1.3** REFACTOR: ensure single-responsibility; export only classifier.
+
+### 7.2 Map unwrapper (pure) — RED → GREEN → REFACTOR
+
+- [ ] **7.2.1** RED: cases in `src/__tests__/query-unwrap.test.ts`:
+  - `"{:query [:find (pull ?b [*]) :where [?b :logseq.property/status ?s]]}"` → `"[:find (pull ?b [*]) :where [?b :logseq.property/status ?s]]"`
+  - Wrapper with `:inputs`: `"{:query […] :inputs [:today]}"` → inner `:query` vector only (inputs ignored — YAGNI; document limitation)
+  - User's example (nested `or` with `:db/ident` keywords) round-trips byte-identical
+  - Malformed map (no `:query` key) → throws `QueryParseError`
+- [ ] **7.2.2** GREEN: `extractDatalogVector(raw: string): string` — locate `:query`, then bracket-balance forward to find the matching `]` of the outer `[…]` vector. No full EDN parser (YAGNI).
+- [ ] **7.2.3** REFACTOR: extract bracket-balance helper if a second caller appears; otherwise inline.
+
+### 7.3 DSL → block-pull datalog (pure) — RED → GREEN → REFACTOR
+
+- [ ] **7.3.1** RED: `src/__tests__/dsl-to-datalog.test.ts`:
+  - `(task "Todo" "Done")` → datalog vector containing `(pull ?b [*])` and `:logseq.property/status` binding with `?s :block/title` in `("Todo" "Done")`
+  - `(and (task "Done") (tags [[Task]]))` → adds tag join
+  - `(between [[journal-uuid-1]] [[journal-uuid-2]])` → adds `:block/journal-day` range
+  - `(property :priority "high")` → adds property filter
+  - Empty DSL → throws `QueryParseError`
+- [ ] **7.3.2** GREEN: rewrite `buildStatusCountQuery` → `dslToBlockQuery(parsed: ParsedDSL, config): string`. **Key change:** emit `:find (pull ?b [*])` instead of `:find ?status (count ?b)`. Aggregation moves to `aggregate()`.
+- [ ] **7.3.3** REFACTOR: keep `parseDSL` unchanged; it's already tested-via-usage. Delete the old aggregate-in-datalog code path.
+
+### 7.4 Entity → BlockData adapter (pure) — RED → GREEN → REFACTOR
+
+- [ ] **7.4.1** RED: `src/__tests__/entity-to-blockdata.test.ts`:
+  - Entity with `:block/uuid`, `:block/tags` (array of refs with `:block/title`), `:logseq.property/status` (ref with `:block/title "Done"`) → `BlockData` with `tags: ["Task"]`, `properties: { "logseq.property/status": "Done" }`
+  - Entity with plain-string status → preserved as string
+  - Entity missing tags → `tags: []`
+  - Entity missing uuid → `null` (skip)
+- [ ] **7.4.2** GREEN: `entityToBlockData(entity: unknown): BlockData | null` in `src/query.ts`. Small mapper — walk known keys, extract titles from refs.
+- [ ] **7.4.3** REFACTOR: ensure shape matches what `aggregate()` already expects (check `aggregator.ts:3-7` + `readPropertyValue`).
+
+### 7.5 Integration: `countQueryStatuses` rewrite — RED → GREEN → REFACTOR
+
+- [ ] **7.5.1** RED: `src/__tests__/scanner-query.test.ts` with mocked `logseq.DB.datascriptQuery` + `logseq.Editor.getBlock`:
+  - DSL query block → aggregator reaches correct counts
+  - User's custom datalog map query → aggregator reaches correct counts
+  - Bare datalog vector → aggregator reaches correct counts
+  - Unresolvable query → `emptyStatusCounts()` (no throw)
+  - Runtime datascript error → `emptyStatusCounts()` + `console.error`
+- [ ] **7.5.2** GREEN: rewrite `countQueryStatuses` as the thin pipeline `extractRawQuery → classify → toDatalog → datascriptQuery → entities.map(entityToBlockData) → aggregate(blocks, config)`.
+- [ ] **7.5.3** REFACTOR: delete dead code — `buildStatusCountQuery`, `transformCountResults`, the status-title union branches. Scanner should shrink by ~80 LOC.
+
+### 7.6 Live smoke (manual, in Logseq DB graph)
+
+- [ ] **7.6.1** Query block with DSL `(task "Todo" "Doing" "Done")` + `{{renderer :progress-bar}}` → bar renders with live counts
+- [ ] **7.6.2** Query block with the user's custom datascript map (`{:query [:find (pull ?b [*]) :where [?b :logseq.property/status ?s] (or …)]}`) → bar renders with live counts — **the original bug report**
+- [ ] **7.6.3** Bare `[:find (pull ?b [*]) :where …]` vector query → bar renders
+- [ ] **7.6.4** Empty / invalid / unknown query form → `showOnEmpty` behavior applies; no crash, no console.error spam
+- [ ] **7.6.5** `DB.onChanged` still triggers re-render on status flip
+
+### 7.7 Docs + cleanup
+
+- [ ] **7.7.1** Update `REQUIREMENTS.md` §1.3 — document that Query Integration accepts both DSL and custom datascript forms; note the `(pull ?b [*])` contract; note `:inputs` is not supported (YAGNI).
+- [ ] **7.7.2** CHANGELOG entry for this release.
+- [ ] **7.7.3** Delete the parked upstream-bug note (6.7) once 7.5 merges — the whole premise goes away.
+
+### Non-goals (YAGNI, explicit)
+
+- ❌ No `:inputs` support. Users wanting parametrized queries can inline the values.
+- ❌ No support for `:find` shapes other than `(pull ?b [*])` (or an equivalent that returns block entities). Document this.
+- ❌ No host-side `custom_query` workaround or upstream fix filed from this repo — out of scope.
+- ❌ No in-DB `GROUP BY` / `count` aggregation. Pull blocks, count in JS. Acceptable up to ~low thousands of blocks per query; re-evaluate only if profiling says so.
