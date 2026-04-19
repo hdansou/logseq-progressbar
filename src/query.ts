@@ -44,9 +44,61 @@ export function extractDatalogVector(raw: string): string {
   return s.slice(start, end + 1);
 }
 
-export { parseDSL } from "./scanner";
-export type { ParsedDSL } from "./scanner";
-import type { ParsedDSL } from "./scanner";
+export interface ParsedDSL {
+  statuses: string[];
+  dateRange: { start: number; end: number } | null;
+  tagFilters: string[];
+  propertyFilters: Array<{ key: string; value: string }>;
+}
+
+export function parseDSL(dsl: string): ParsedDSL {
+  const result: ParsedDSL = {
+    statuses: [],
+    dateRange: null,
+    tagFilters: [],
+    propertyFilters: [],
+  };
+
+  const taskMatch = dsl.match(/\(\s*task\s+(.+?)\)/i);
+  if (taskMatch) {
+    const inner = taskMatch[1];
+    for (const m of inner.matchAll(/"([^"]+)"/g)) {
+      result.statuses.push(m[1]);
+    }
+    if (result.statuses.length === 0) {
+      result.statuses.push(...inner.trim().split(/\s+/).filter(Boolean));
+    }
+  }
+
+  const betweenMatch = dsl.match(
+    /\(\s*between\s+\[\[([^\]]+)\]\]\s+\[\[([^\]]+)\]\]\s*\)/i
+  );
+  if (betweenMatch) {
+    const dateFromUUID = (uuid: string): number | null => {
+      const m = uuid.match(/00000001-(\d{4})-(\d{2})(\d{2})-/);
+      if (!m) return null;
+      return parseInt(`${m[1]}${m[2]}${m[3]}`);
+    };
+    const start = dateFromUUID(betweenMatch[1]);
+    const end = dateFromUUID(betweenMatch[2]);
+    if (start !== null && end !== null) {
+      result.dateRange = { start, end };
+    }
+  }
+
+  const tagsMatch = dsl.match(/\(\s*tags\s+((?:\[\[[^\]]+\]\]\s*)+)\)/i);
+  if (tagsMatch) {
+    for (const m of tagsMatch[1].matchAll(/\[\[([^\]]+)\]\]/g)) {
+      result.tagFilters.push(m[1]);
+    }
+  }
+
+  for (const m of dsl.matchAll(/\(\s*property\s+:(\S+)\s+"([^"]+)"\s*\)/gi)) {
+    result.propertyFilters.push({ key: m[1], value: m[2] });
+  }
+
+  return result;
+}
 
 interface DslToBlockQueryOptions {
   trackedProperty: string;

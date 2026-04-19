@@ -1,192 +1,85 @@
 import type { ProgressBarConfig, StatusCounts } from "./types";
+import { aggregate } from "./aggregator";
+import {
+  classifyQuery,
+  dslToBlockQuery,
+  entityToBlockData,
+  extractDatalogVector,
+  parseDSL,
+  QueryParseError,
+  type BlockData,
+} from "./query";
 
-interface BlockData {
-  uuid: string;
-  tags: string[]; // tag names on this block
-  properties: Record<string, unknown>;
-}
-
-// ─── Query mode: direct datascript counting ───────────────────────────
-
-/** Structured representation of a parsed DSL query */
-export interface ParsedDSL {
-  statuses: string[]; // from (task "Done" "Doing" "Todo")
-  dateRange: { start: number; end: number } | null; // from (between ...)
-  tagFilters: string[]; // from (tags [[Task]])
-  propertyFilters: Array<{ key: string; value: string }>; // from (property :key "value")
-}
+// ─── Query mode: unified DSL + custom datascript pipeline ─────────────
 
 /**
- * Count blocks by status directly from a query block's DSL using datascript.
- * This replaces the broken DB.q() approach with a single efficient count query.
+ * Count blocks from a query block by grouping on the tracked property.
  *
- * Flow: UUID → resolveQueryDSL() → parseDSL() → datascriptQuery(count) → StatusCounts
+ * One pipeline for every query shape:
+ *   UUID → resolveQueryRaw → classify → toBlockDatalog → datascriptQuery
+ *        → entityToBlockData[] → aggregate → StatusCounts
  */
 export async function countQueryStatuses(
   queryUUID: string,
   config: ProgressBarConfig
 ): Promise<StatusCounts> {
-  const queryBlock = await logseq.Editor.getBlock(queryUUID);
-  if (!queryBlock) return emptyStatusCounts();
+  const raw = await resolveQueryRaw(queryUUID);
+  if (!raw) return emptyStatusCounts();
 
-  // Step 1: Get the query DSL string from the block
-  const queryStr = await resolveQueryDSL(queryUUID, queryBlock);
-  if (!queryStr) return emptyStatusCounts();
+  const kind = classifyQuery(raw);
+  const trackedProperty =
+    Object.values(config.propertyMappings)[0] || "status";
 
-  console.log("[progress-bar] query DSL:", queryStr);
-
-  // Step 2: Parse DSL into structured components
-  const parsed = parseDSL(queryStr);
-  console.log("[progress-bar] parsed:", JSON.stringify(parsed));
-
-  // Step 3: Build and execute datascript count query
-  const dsQuery = await buildStatusCountQuery(parsed, config);
-  console.log("[progress-bar] datascript:", dsQuery);
+  let datalog: string;
+  try {
+    switch (kind) {
+      case "dsl": {
+        const parsed = parseDSL(raw);
+        datalog = dslToBlockQuery(parsed, {
+          trackedProperty,
+          resolvedTags: await resolveUUIDRefs(parsed.tagFilters),
+        });
+        break;
+      }
+      case "datalog-map":
+        datalog = extractDatalogVector(raw);
+        break;
+      case "datalog-vec":
+        datalog = raw.trim();
+        break;
+      default:
+        return emptyStatusCounts();
+    }
+  } catch (e) {
+    if (e instanceof QueryParseError) {
+      console.warn("[progress-bar] query parse error:", e.message);
+      return emptyStatusCounts();
+    }
+    throw e;
+  }
 
   try {
-    const res = await logseq.DB.datascriptQuery(dsQuery);
-    const stats = transformCountResults(res, config);
-    console.log("[progress-bar] counts:", JSON.stringify(stats));
-    return stats;
+    const rows = await logseq.DB.datascriptQuery(datalog);
+    const blocks = rowsToBlocks(rows);
+    return aggregate(blocks, config);
   } catch (e) {
-    console.error("[progress-bar] datascript count query failed:", e);
+    console.error("[progress-bar] datascript query failed:", e);
     return emptyStatusCounts();
   }
 }
 
-/**
- * Parse Logseq query DSL into structured components.
- * Extracts status values, date ranges, tag filters, and property filters.
- */
-export function parseDSL(dsl: string): ParsedDSL {
-  const result: ParsedDSL = {
-    statuses: [],
-    dateRange: null,
-    tagFilters: [],
-    propertyFilters: [],
-  };
-
-  // Extract (task "Done" "Doing" "Todo") statuses
-  const taskMatch = dsl.match(/\(\s*task\s+(.+?)\)/i);
-  if (taskMatch) {
-    const inner = taskMatch[1];
-    for (const m of inner.matchAll(/"([^"]+)"/g)) {
-      result.statuses.push(m[1]);
-    }
-    // Fallback: bare words if no quoted values
-    if (result.statuses.length === 0) {
-      result.statuses.push(...inner.trim().split(/\s+/).filter(Boolean));
-    }
+/** Unwrap [[<entity>], …] pull-row shape into BlockData[]. */
+function rowsToBlocks(rows: unknown): BlockData[] {
+  if (!Array.isArray(rows)) return [];
+  const out: BlockData[] = [];
+  for (const row of rows) {
+    const entity = Array.isArray(row) ? row[0] : row;
+    const bd = entityToBlockData(entity);
+    if (bd) out.push(bd);
   }
-
-  // Extract (between [[uuid1]] [[uuid2]]) date range
-  const betweenMatch = dsl.match(
-    /\(\s*between\s+\[\[([^\]]+)\]\]\s+\[\[([^\]]+)\]\]\s*\)/i
-  );
-  if (betweenMatch) {
-    const dateFromUUID = (uuid: string): number | null => {
-      const m = uuid.match(/00000001-(\d{4})-(\d{2})(\d{2})-/);
-      if (!m) return null;
-      return parseInt(`${m[1]}${m[2]}${m[3]}`);
-    };
-    const start = dateFromUUID(betweenMatch[1]);
-    const end = dateFromUUID(betweenMatch[2]);
-    if (start !== null && end !== null) {
-      result.dateRange = { start, end };
-    }
-  }
-
-  // Extract (tags [[TagName]]) filters
-  const tagsMatch = dsl.match(/\(\s*tags\s+((?:\[\[[^\]]+\]\]\s*)+)\)/i);
-  if (tagsMatch) {
-    for (const m of tagsMatch[1].matchAll(/\[\[([^\]]+)\]\]/g)) {
-      result.tagFilters.push(m[1]);
-    }
-  }
-
-  // Extract (property :key "value") filters
-  for (const m of dsl.matchAll(/\(\s*property\s+:(\S+)\s+"([^"]+)"\s*\)/gi)) {
-    result.propertyFilters.push({ key: m[1], value: m[2] });
-  }
-
-  return result;
+  return out;
 }
 
-/**
- * Build a datascript query that returns [status-value, count] pairs.
- * Translates parsed DSL components into datascript where-clauses.
- */
-async function buildStatusCountQuery(
-  parsed: ParsedDSL,
-  config: ProgressBarConfig
-): Promise<string> {
-  // Determine the property to track from config
-  const trackedProperty =
-    Object.values(config.propertyMappings)[0] || "status";
-  const propertyAttr = `:logseq.property/${trackedProperty}`;
-
-  const whereClauses: string[] = [];
-
-  // Core: find blocks with the tracked property and get its title
-  whereClauses.push(`[?b ${propertyAttr} ?s]`);
-  whereClauses.push("[?s :block/title ?status]");
-
-  // Filter by specific status values from (task ...)
-  if (parsed.statuses.length > 0) {
-    if (parsed.statuses.length === 1) {
-      whereClauses.push(`[?s :block/title "${parsed.statuses[0]}"]`);
-    } else {
-      const orClauses = parsed.statuses
-        .map((s) => `[?s :block/title "${s}"]`)
-        .join("\n         ");
-      whereClauses.push(`(or ${orClauses})`);
-    }
-  }
-
-  // Date range filter from (between ...)
-  if (parsed.dateRange) {
-    whereClauses.push("[?b :block/page ?p]");
-    whereClauses.push("[?p :block/journal-day ?d]");
-    whereClauses.push(`[(>= ?d ${parsed.dateRange.start})]`);
-    whereClauses.push(`[(<= ?d ${parsed.dateRange.end})]`);
-  }
-
-  // Tag filter from (tags [[...]])
-  if (parsed.tagFilters.length > 0) {
-    const resolvedTags = await resolveUUIDRefs(parsed.tagFilters);
-    if (resolvedTags.length > 0) {
-      whereClauses.push("[?b :block/tags ?tag]");
-      if (resolvedTags.length === 1) {
-        whereClauses.push(`[?tag :block/title "${resolvedTags[0]}"]`);
-      } else {
-        const orClauses = resolvedTags
-          .map((t) => `[?tag :block/title "${t}"]`)
-          .join("\n         ");
-        whereClauses.push(`(or ${orClauses})`);
-      }
-    }
-  }
-
-  // Property filters from (property :key "value")
-  for (let i = 0; i < parsed.propertyFilters.length; i++) {
-    const pf = parsed.propertyFilters[i];
-    const attrName = pf.key.includes("/")
-      ? pf.key
-      : `logseq.property/${pf.key}`;
-    whereClauses.push(`[?b :${attrName} ?pv${i}]`);
-    whereClauses.push(`[?pv${i} :block/title "${pf.value}"]`);
-  }
-
-  const whereStr = whereClauses.join("\n       ");
-
-  return `[:find ?status (count ?b)
-     :where
-     ${whereStr}]`;
-}
-
-/**
- * Resolve UUID strings to page titles for use in datascript queries.
- */
 async function resolveUUIDRefs(refs: string[]): Promise<string[]> {
   const resolved: string[] = [];
   for (const ref of refs) {
@@ -209,49 +102,9 @@ async function resolveUUIDRefs(refs: string[]): Promise<string[]> {
         // skip unresolvable
       }
     }
-    // Not a UUID or resolution failed — use as-is (already a page name)
     resolved.push(ref);
   }
   return resolved;
-}
-
-/**
- * Transform datascript [[status, count], ...] results into StatusCounts.
- */
-export function transformCountResults(
-  res: any,
-  config: ProgressBarConfig
-): StatusCounts {
-  if (!Array.isArray(res) || res.length === 0) return emptyStatusCounts();
-
-  const counts: Record<string, number> = {};
-  let total = 0;
-  let completed = 0;
-
-  // Build the set of "complete" values from config
-  const completeSet = new Set<string>();
-  for (const vals of Object.values(config.completeValues)) {
-    for (const v of vals) {
-      completeSet.add(v.toLowerCase());
-    }
-  }
-
-  for (const item of res) {
-    // datascriptQuery with :find ?x (count ?b) returns [[status, count], ...]
-    const row = Array.isArray(item) ? item : [item];
-    const status = String(row[0]);
-    const count = typeof row[1] === "number" ? row[1] : 1;
-
-    counts[status] = (counts[status] || 0) + count;
-    total += count;
-
-    if (completeSet.has(status.toLowerCase())) {
-      completed += count;
-    }
-  }
-
-  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-  return { counts, total, completed, percent };
 }
 
 function emptyStatusCounts(): StatusCounts {
@@ -260,9 +113,6 @@ function emptyStatusCounts(): StatusCounts {
 
 // ─── Children/page mode: block scanning ───────────────────────────────
 
-/**
- * Scan descendant blocks of a parent block, respecting depth config.
- */
 export async function scanChildren(
   parentUUID: string,
   config: ProgressBarConfig
@@ -277,9 +127,6 @@ export async function scanChildren(
   return results;
 }
 
-/**
- * Scan all blocks on a page, respecting depth config.
- */
 export async function scanPage(
   pageName: string,
   config: ProgressBarConfig
@@ -292,11 +139,6 @@ export async function scanPage(
   return results;
 }
 
-/**
- * Filter blocks by tag scope according to config.
- * - Strict mode: only blocks with matching tags
- * - Inclusive mode: all blocks, using first matching tag for property lookup
- */
 export function filterByTags(
   blocks: BlockData[],
   config: ProgressBarConfig
@@ -308,25 +150,20 @@ export function filterByTags(
       b.tags.some((t) => tagSet.has(t.toLowerCase()))
     );
   }
-
-  // Inclusive mode: return all blocks (tag mapping resolved in aggregator)
   return blocks;
 }
 
-// ─── DSL resolution (shared) ──────────────────────────────────────────
+// ─── Raw-query resolution (shared) ────────────────────────────────────
 
 /**
- * Resolve the query DSL string from a query block.
+ * Resolve the raw query string from a query block.
  *
- * In DB graphs, `logseq.property/query` is a reference ({db/id: N}),
- * not the raw DSL string. We use datascript to follow the reference
- * and extract the actual DSL string.
+ * In DB graphs, `:logseq.property/query` is a reference whose `:block/title`
+ * is the query string (either DSL like `(task "Done")` or datalog like
+ * `{:query [:find …]}` / `[:find …]`). Three resolution strategies in case
+ * any one path is flaky in a given build.
  */
-async function resolveQueryDSL(
-  uuid: string,
-  _block: any
-): Promise<string | null> {
-  // Strategy 1: Pull full block entity with inlined UUID
+async function resolveQueryRaw(uuid: string): Promise<string | null> {
   try {
     const pulled = await logseq.DB.datascriptQuery(`
       [:find (pull ?b [*]) .
@@ -334,14 +171,13 @@ async function resolveQueryDSL(
        [?b :block/uuid #uuid "${uuid}"]]
     `);
     if (pulled) {
-      const dsl = findDSLInEntity(pulled);
-      if (dsl) return dsl;
+      const raw = findQueryStringInEntity(pulled);
+      if (raw) return raw;
     }
   } catch (e) {
     console.log("[progress-bar] pull entity error:", e);
   }
 
-  // Strategy 2: Resolve the query reference entity's title via datascript
   try {
     const result = await logseq.DB.datascriptQuery(`
       [:find ?q .
@@ -350,54 +186,54 @@ async function resolveQueryDSL(
        [?b :logseq.property/query ?qid]
        [?qid :block/title ?q]]
     `);
-    if (typeof result === "string" && result.trim().startsWith("(")) {
+    if (typeof result === "string" && isQueryOpener(result.trim()[0])) {
       return result.trim();
     }
   } catch (e) {
     console.log("[progress-bar] datascript resolve error:", e);
   }
 
-  // Strategy 3: getBlock + deep inspect of properties
   try {
     const block = await logseq.Editor.getBlock(uuid);
     if (block) {
-      const dsl = findDSLInEntity(block as any);
-      if (dsl) return dsl;
-      if (block.properties) {
-        const dsl2 = findDSLInEntity(block.properties as any);
-        if (dsl2) return dsl2;
+      const raw = findQueryStringInEntity(block as any);
+      if (raw) return raw;
+      if ((block as any).properties) {
+        const raw2 = findQueryStringInEntity((block as any).properties);
+        if (raw2) return raw2;
       }
     }
   } catch (e) {
     console.log("[progress-bar] getBlock error:", e);
   }
 
-  console.warn("[progress-bar] Could not resolve query DSL for block:", uuid);
+  console.warn("[progress-bar] Could not resolve query for block:", uuid);
   return null;
 }
 
-/**
- * Recursively search an entity object for a DSL query string.
- * Valid DSL queries start with "(".
- */
-function findDSLInEntity(obj: Record<string, unknown>): string | null {
-  for (const [_key, val] of Object.entries(obj)) {
-    if (typeof val === "string") {
-      const trimmed = val.trim();
-      if (trimmed.startsWith("(") && trimmed.endsWith(")")) return trimmed;
-    }
-    // Check one level deep into nested objects
+function isQueryOpener(ch: string | undefined): boolean {
+  return ch === "(" || ch === "{" || ch === "[";
+}
+
+/** Walk an entity looking for a string that opens with (, {, or [. */
+function findQueryStringInEntity(obj: Record<string, unknown>): string | null {
+  for (const val of Object.values(obj)) {
+    const hit = asQueryString(val);
+    if (hit) return hit;
     if (val && typeof val === "object" && !Array.isArray(val)) {
-      const nested = val as Record<string, unknown>;
-      for (const [_nk, nv] of Object.entries(nested)) {
-        if (typeof nv === "string") {
-          const trimmed = nv.trim();
-          if (trimmed.startsWith("(") && trimmed.endsWith(")")) return trimmed;
-        }
+      for (const nv of Object.values(val as Record<string, unknown>)) {
+        const nested = asQueryString(nv);
+        if (nested) return nested;
       }
     }
   }
   return null;
+}
+
+function asQueryString(val: unknown): string | null {
+  if (typeof val !== "string") return null;
+  const trimmed = val.trim();
+  return isQueryOpener(trimmed[0]) ? trimmed : null;
 }
 
 // ─── Internal helpers (children mode) ─────────────────────────────────
