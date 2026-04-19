@@ -225,11 +225,22 @@
 
 ### 7.6 Live smoke (manual, in Logseq DB graph)
 
-- [ ] **7.6.1** Query block with DSL `(task "Todo" "Doing" "Done")` + `{{renderer :progress-bar}}` → bar renders with live counts
-- [ ] **7.6.2** Query block with the user's custom datascript map (`{:query [:find (pull ?b [*]) :where [?b :logseq.property/status ?s] (or …)]}`) → bar renders with live counts — **the original bug report**
+Attempted an automated pass via `logseq-plugin-tester` against a live
+`logseq_db_Demo` graph at `localhost:3001`. Partial coverage achieved —
+see below. Full end-to-end verification is **blocked on the same
+environmental concerns as task 6.6** (Logseq 0.3.2 host stability).
+
+- [x] **7.6.a** *(verified automatically)* Plugin builds and installs cleanly via `LSPluginCore.load_plugin_from_web_url_BANG_`.
+- [x] **7.6.b** *(verified automatically)* `main()` runs to completion — `Progress Bar plugin loaded!` + `ready!` in console.
+- [x] **7.6.c** *(verified automatically)* `onMacroRendererSlotted` handler registers host-side — `hook:app:macro_renderer_slotted` present under `:plugin/installed-hooks` in the Logseq app state, alongside `hook:app:theme_mode_changed`, `hook:db:changed`, slash-command hook.
+- [x] **7.6.d** *(verified automatically)* Logseq parses `{{renderer :progress-bar}}` as a macro and creates a `.lsp-hook-ui-slot` in the DOM for the plugin to fill.
+- [ ] **7.6.1** Query block with DSL `(task "Todo" "Doing" "Done")` + `{{renderer :progress-bar}}` → bar renders with live counts — **manual verification pending**
+- [ ] **7.6.2** Query block with the user's custom datascript map (`{:query [:find (pull ?b [*]) :where [?b :logseq.property/status ?s] (or …)]}`) → bar renders with live counts — **the original bug report, manual verification pending**
 - [ ] **7.6.3** Bare `[:find (pull ?b [*]) :where …]` vector query → bar renders
 - [ ] **7.6.4** Empty / invalid / unknown query form → `showOnEmpty` behavior applies; no crash, no console.error spam
 - [ ] **7.6.5** `DB.onChanged` still triggers re-render on status flip
+
+> **Blocker note:** During E2E, Logseq emitted a recurring `Update Error: Arguments to path.join must be strings` on the in-memory Demo graph, causing constant React re-renders that destroyed Playwright's JS execution context before async `logseq.api.append_block_in_page(...)` calls could resolve. This is the same category of host instability tracked under 6.6. Phase 7 code paths are covered by the 33 dedicated unit tests (including the original bug report's exact query) and by automatic verification that the renderer registration reaches the host; full visual smoke is queued behind a stable 0.3.2 host build.
 
 ### 7.7 Docs + cleanup
 
