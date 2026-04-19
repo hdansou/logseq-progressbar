@@ -9,7 +9,7 @@ interface BlockData {
 // ─── Query mode: direct datascript counting ───────────────────────────
 
 /** Structured representation of a parsed DSL query */
-interface ParsedDSL {
+export interface ParsedDSL {
   statuses: string[]; // from (task "Done" "Doing" "Todo")
   dateRange: { start: number; end: number } | null; // from (between ...)
   tagFilters: string[]; // from (tags [[Task]])

@@ -44,6 +44,65 @@ export function extractDatalogVector(raw: string): string {
   return s.slice(start, end + 1);
 }
 
+export { parseDSL } from "./scanner";
+export type { ParsedDSL } from "./scanner";
+import type { ParsedDSL } from "./scanner";
+
+interface DslToBlockQueryOptions {
+  trackedProperty: string;
+  resolvedTags?: string[];
+}
+
+export function dslToBlockQuery(
+  parsed: ParsedDSL,
+  opts: DslToBlockQueryOptions
+): string {
+  const { trackedProperty, resolvedTags } = opts;
+  if (!trackedProperty) {
+    throw new QueryParseError("trackedProperty is required");
+  }
+
+  const propertyAttr = `:logseq.property/${trackedProperty}`;
+  const where: string[] = [`[?b ${propertyAttr} ?s]`];
+
+  if (parsed.statuses.length === 1) {
+    where.push(`[?s :block/title "${parsed.statuses[0]}"]`);
+  } else if (parsed.statuses.length > 1) {
+    const ors = parsed.statuses
+      .map((s) => `[?s :block/title "${s}"]`)
+      .join(" ");
+    where.push(`(or ${ors})`);
+  }
+
+  if (parsed.dateRange) {
+    where.push("[?b :block/page ?p]");
+    where.push("[?p :block/journal-day ?d]");
+    where.push(`[(>= ?d ${parsed.dateRange.start})]`);
+    where.push(`[(<= ?d ${parsed.dateRange.end})]`);
+  }
+
+  const tags = resolvedTags ?? parsed.tagFilters;
+  if (tags.length > 0) {
+    where.push("[?b :block/tags ?tag]");
+    if (tags.length === 1) {
+      where.push(`[?tag :block/title "${tags[0]}"]`);
+    } else {
+      const ors = tags.map((t) => `[?tag :block/title "${t}"]`).join(" ");
+      where.push(`(or ${ors})`);
+    }
+  }
+
+  parsed.propertyFilters.forEach((pf, i) => {
+    const attrName = pf.key.includes("/")
+      ? pf.key
+      : `logseq.property/${pf.key}`;
+    where.push(`[?b :${attrName} ?pv${i}]`);
+    where.push(`[?pv${i} :block/title "${pf.value}"]`);
+  });
+
+  return `[:find (pull ?b [*])\n :where\n ${where.join("\n ")}]`;
+}
+
 function findMatchingBracket(s: string, startIdx: number): number {
   let depth = 0;
   let i = startIdx;
