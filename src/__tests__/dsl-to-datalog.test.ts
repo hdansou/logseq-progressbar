@@ -10,7 +10,8 @@ describe("dslToBlockQuery", () => {
     const parsed = parseDSL('(task "Todo" "Done")');
     const out = squish(dslToBlockQuery(parsed, { trackedProperty: "status" }));
 
-    expect(out).toContain("[:find (pull ?b [*])");
+    expect(out).toContain("[:find (pull ?b [:block/uuid");
+    expect(out).toContain("{:logseq.property/status [:block/title]}");
     expect(out).toContain("[?b :logseq.property/status ?s]");
     expect(out).toContain('(or [?s :block/title "Todo"] [?s :block/title "Done"])');
     // No count aggregation — grouping happens in JS.

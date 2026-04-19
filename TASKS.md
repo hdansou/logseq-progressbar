@@ -230,17 +230,20 @@ Attempted an automated pass via `logseq-plugin-tester` against a live
 see below. Full end-to-end verification is **blocked on the same
 environmental concerns as task 6.6** (Logseq 0.3.2 host stability).
 
-- [x] **7.6.a** *(verified automatically)* Plugin builds and installs cleanly via `LSPluginCore.load_plugin_from_web_url_BANG_`.
-- [x] **7.6.b** *(verified automatically)* `main()` runs to completion — `Progress Bar plugin loaded!` + `ready!` in console.
-- [x] **7.6.c** *(verified automatically)* `onMacroRendererSlotted` handler registers host-side — `hook:app:macro_renderer_slotted` present under `:plugin/installed-hooks` in the Logseq app state, alongside `hook:app:theme_mode_changed`, `hook:db:changed`, slash-command hook.
-- [x] **7.6.d** *(verified automatically)* Logseq parses `{{renderer :progress-bar}}` as a macro and creates a `.lsp-hook-ui-slot` in the DOM for the plugin to fill.
-- [ ] **7.6.1** Query block with DSL `(task "Todo" "Doing" "Done")` + `{{renderer :progress-bar}}` → bar renders with live counts — **manual verification pending**
-- [ ] **7.6.2** Query block with the user's custom datascript map (`{:query [:find (pull ?b [*]) :where [?b :logseq.property/status ?s] (or …)]}`) → bar renders with live counts — **the original bug report, manual verification pending**
-- [ ] **7.6.3** Bare `[:find (pull ?b [*]) :where …]` vector query → bar renders
-- [ ] **7.6.4** Empty / invalid / unknown query form → `showOnEmpty` behavior applies; no crash, no console.error spam
-- [ ] **7.6.5** `DB.onChanged` still triggers re-render on status flip
+- [x] **7.6.a** Plugin builds and installs cleanly via `LSPluginCore.load_plugin_from_web_url_BANG_`.
+- [x] **7.6.b** `main()` runs to completion — `Progress Bar plugin loaded!` + `ready!` in console.
+- [x] **7.6.c** `onMacroRendererSlotted` handler registers host-side — `hook:app:macro_renderer_slotted` present under `:plugin/installed-hooks`.
+- [x] **7.6.d** Logseq parses `{{renderer :progress-bar}}` as a macro and creates a `.lsp-hook-ui-slot` in the DOM.
+- [x] **7.6.1** DSL query block `(task "Todo" "Doing" "Done")` → bar renders (**verified: 50% green/grey segmented bar with label**).
+- [x] **7.6.2** Custom datascript map query → bar renders (**verified: 40% bar with correct totals**). Caveat: user's `(pull ?b [...])` spec must include `{:logseq.property/status [:block/title]}` for ref resolution.
+- [ ] **7.6.3** Bare `[:find (pull ?b [*]) :where …]` vector query → bar renders (inferred-working via 7.6.2; explicit check pending).
+- [ ] **7.6.4** Empty / invalid / unknown query form → `showOnEmpty` behavior applies.
+- [ ] **7.6.5** `DB.onChanged` re-renders on status flip.
 
-> **Blocker note:** During E2E, Logseq emitted a recurring `Update Error: Arguments to path.join must be strings` on the in-memory Demo graph, causing constant React re-renders that destroyed Playwright's JS execution context before async `logseq.api.append_block_in_page(...)` calls could resolve. This is the same category of host instability tracked under 6.6. Phase 7 code paths are covered by the 33 dedicated unit tests (including the original bug report's exact query) and by automatic verification that the renderer registration reaches the host; full visual smoke is queued behind a stable 0.3.2 host build.
+> **Discovery:** the first E2E pass exposed two real-graph bugs that unit tests missed:
+>
+> 1. **Resolver regression** — widening the query-opener set from `(` to `(/{/[` caused the entity walker to grab the block's own `{{renderer :progress-bar}}` title (starts with `{`) instead of the DSL behind `:logseq.property/query`. **Fix:** reorder resolver to query `:logseq.property/query → :block/title` directly; drop the ambiguous entity walk. Regression test added.
+> 2. **Pull pattern / data shape** — Logseq's JSON normalization strips `block/` prefix from common keys (so entities use plain `uuid`, `title`, `tags`), and `(pull ?b [*])` returns refs as unresolved `{id: N}` stubs. **Fix:** emit a rich pull that resolves refs inline (`{:block/tags [:block/title]} {:logseq.property/<prop> [:block/title]}`); teach `entityToBlockData.pickKey` to accept both `block/uuid` and plain `uuid`. Regression test added.
 
 ### 7.7 Docs + cleanup
 

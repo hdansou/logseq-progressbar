@@ -152,7 +152,10 @@ export function dslToBlockQuery(
     where.push(`[?pv${i} :block/title "${pf.value}"]`);
   });
 
-  return `[:find (pull ?b [*])\n :where\n ${where.join("\n ")}]`;
+  // Rich pull: resolve the tracked property and tag refs to their :block/title
+  // inline so entityToBlockData doesn't need a second DB round-trip.
+  const pullSpec = `[:block/uuid {:block/tags [:block/title]} {:logseq.property/${trackedProperty} [:block/title]}]`;
+  return `[:find (pull ?b ${pullSpec})\n :where\n ${where.join("\n ")}]`;
 }
 
 export interface BlockData {
@@ -200,10 +203,22 @@ function resolvePropValue(val: unknown): unknown {
   return val;
 }
 
+/**
+ * Pick a key tolerating four shapes:
+ *   "block/uuid" | ":block/uuid" | "uuid" | ":uuid"
+ * Logseq's JSON normalization strips the "block/" prefix from common keys,
+ * so real datascriptQuery output uses plain "uuid", "title", "tags".
+ */
 function pickKey(obj: Record<string, unknown>, name: string): unknown {
   if (name in obj) return obj[name];
   const colonKey = `:${name}`;
   if (colonKey in obj) return obj[colonKey];
+  const bare = name.startsWith("block/") ? name.slice("block/".length) : null;
+  if (bare) {
+    if (bare in obj) return obj[bare];
+    const bareColon = `:${bare}`;
+    if (bareColon in obj) return obj[bareColon];
+  }
   return undefined;
 }
 

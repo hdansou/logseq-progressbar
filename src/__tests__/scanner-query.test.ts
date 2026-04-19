@@ -28,14 +28,9 @@ function installLogseqMock(opts: {
   entities: unknown[];
 }) {
   const datascriptQuery: MockDatascript = vi.fn(async (q: string) => {
-    // Strategy 1 (resolver): pull the query block by uuid → return shape with
-    // :logseq.property/query pointing at a ref whose :block/title is the raw
-    // query string.
-    if (q.includes(":block/uuid")) {
-      return {
-        "block/uuid": "query-uuid",
-        "logseq.property/query": { "block/title": opts.queryBlockTitle },
-      };
+    // Resolver query targets :logseq.property/query → :block/title directly.
+    if (q.includes(":logseq.property/query") && q.includes(":block/title ?q")) {
+      return opts.queryBlockTitle;
     }
     // Main data query
     return asRows(opts.entities);
@@ -132,15 +127,35 @@ describe("countQueryStatuses — unified query pipeline", () => {
     expect(stats.percent).toBe(0);
   });
 
+  it("picks the :logseq.property/query DSL, not the block's own '{{renderer …}}' title (regression)", async () => {
+    // Real query-block shape: the block's OWN title is the renderer macro
+    // (starts with '{'), and the actual DSL lives behind :logseq.property/query.
+    // A loose resolver would grab the block title because it opens with '{'.
+    const datascriptQuery = vi.fn(async (q: string) => {
+      if (q.includes(":logseq.property/query") && q.includes(":block/title ?q")) {
+        return '(task "Todo" "Done")';
+      }
+      return asRows([entity("b1", "Done"), entity("b2", "Todo")]);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).logseq = {
+      DB: { datascriptQuery },
+      Editor: { getBlock: vi.fn(async () => null) },
+    };
+
+    const stats = await countQueryStatuses("query-uuid", baseConfig);
+    expect(stats.total).toBe(2);
+    expect(stats.counts).toEqual({ Done: 1, Todo: 1 });
+  });
+
   it("returns empty stats (and does not throw) on datascript runtime error", async () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const datascriptQuery = vi.fn(async (q: string) => {
-      if (q.includes(":block/uuid")) {
-        return {
-          "block/uuid": "query-uuid",
-          "logseq.property/query": { "block/title": '(task "Done")' },
-        };
+      if (q.includes(":logseq.property/query")) {
+        // Resolver succeeds
+        return '(task "Done")';
       }
+      // Main data query blows up
       throw new Error("boom");
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

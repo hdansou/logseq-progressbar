@@ -164,20 +164,9 @@ export function filterByTags(
  * any one path is flaky in a given build.
  */
 async function resolveQueryRaw(uuid: string): Promise<string | null> {
-  try {
-    const pulled = await logseq.DB.datascriptQuery(`
-      [:find (pull ?b [*]) .
-       :where
-       [?b :block/uuid #uuid "${uuid}"]]
-    `);
-    if (pulled) {
-      const raw = findQueryStringInEntity(pulled);
-      if (raw) return raw;
-    }
-  } catch (e) {
-    console.log("[progress-bar] pull entity error:", e);
-  }
-
+  // Strategy 1: resolve :logseq.property/query → :block/title directly.
+  // This is the only shape Logseq DB uses for query blocks, so it's
+  // unambiguous — we can't accidentally grab the block's own title.
   try {
     const result = await logseq.DB.datascriptQuery(`
       [:find ?q .
@@ -186,22 +175,27 @@ async function resolveQueryRaw(uuid: string): Promise<string | null> {
        [?b :logseq.property/query ?qid]
        [?qid :block/title ?q]]
     `);
-    if (typeof result === "string" && isQueryOpener(result.trim()[0])) {
-      return result.trim();
+    if (typeof result === "string") {
+      const trimmed = result.trim();
+      if (isQueryOpener(trimmed[0])) return trimmed;
     }
   } catch (e) {
     console.log("[progress-bar] datascript resolve error:", e);
   }
 
+  // Strategy 2: fall back to getBlock and inspect the query property.
+  // Needed for environments where datascript pulls fail but the SDK API works.
   try {
     const block = await logseq.Editor.getBlock(uuid);
-    if (block) {
-      const raw = findQueryStringInEntity(block as any);
-      if (raw) return raw;
-      if ((block as any).properties) {
-        const raw2 = findQueryStringInEntity((block as any).properties);
-        if (raw2) return raw2;
-      }
+    const qRef = (block as any)?.["logseq.property/query"] ??
+      (block as any)?.properties?.["logseq.property/query"] ??
+      (block as any)?.properties?.query;
+    const title = typeof qRef === "string"
+      ? qRef
+      : qRef?.["block/title"] ?? qRef?.[":block/title"] ?? qRef?.title;
+    if (typeof title === "string") {
+      const trimmed = title.trim();
+      if (isQueryOpener(trimmed[0])) return trimmed;
     }
   } catch (e) {
     console.log("[progress-bar] getBlock error:", e);
@@ -213,27 +207,6 @@ async function resolveQueryRaw(uuid: string): Promise<string | null> {
 
 function isQueryOpener(ch: string | undefined): boolean {
   return ch === "(" || ch === "{" || ch === "[";
-}
-
-/** Walk an entity looking for a string that opens with (, {, or [. */
-function findQueryStringInEntity(obj: Record<string, unknown>): string | null {
-  for (const val of Object.values(obj)) {
-    const hit = asQueryString(val);
-    if (hit) return hit;
-    if (val && typeof val === "object" && !Array.isArray(val)) {
-      for (const nv of Object.values(val as Record<string, unknown>)) {
-        const nested = asQueryString(nv);
-        if (nested) return nested;
-      }
-    }
-  }
-  return null;
-}
-
-function asQueryString(val: unknown): string | null {
-  if (typeof val !== "string") return null;
-  const trimmed = val.trim();
-  return isQueryOpener(trimmed[0]) ? trimmed : null;
 }
 
 // ─── Internal helpers (children mode) ─────────────────────────────────

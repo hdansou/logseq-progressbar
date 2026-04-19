@@ -56,6 +56,22 @@ describe("entityToBlockData", () => {
     expect(entityToBlockData(42)).toBeNull();
   });
 
+  it("accepts de-namespaced key shape (plain 'uuid'/'tags') from Logseq JSON normalization", () => {
+    // Real datascriptQuery output after normalize-keyword-for-json strips
+    // block/ prefixes from common keys. Status ref arrives as either a nested
+    // resolved {block/title} (when pull pattern resolves it) or a stub {id}.
+    const entity = {
+      uuid: "55555555-5555-5555-5555-555555555555",
+      title: "Ship the thing",
+      tags: [{ "block/title": "Task" }],
+      ":logseq.property/status": { "block/title": "Done" },
+    };
+    const bd = entityToBlockData(entity);
+    expect(bd!.uuid).toBe("55555555-5555-5555-5555-555555555555");
+    expect(bd!.tags).toEqual(["Task"]);
+    expect(bd!.properties["logseq.property/status"]).toBe("Done");
+  });
+
   it("tolerates leading-colon key shape (':block/uuid') as a fallback", () => {
     // Some Logseq code paths still emit keyword-prefixed keys. Defensive but small.
     const entity = {
