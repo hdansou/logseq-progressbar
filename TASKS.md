@@ -281,11 +281,14 @@ Audit run via `production-readiness` skill. Categories A + C + E applied
 - **E3** — `@types/node` added; `tsconfig.json` `types: ["vitest/globals", "node"]`. The 3 pre-existing typecheck errors in `manifest.test.ts` clear.
 - **E4** — `npm run typecheck` script added.
 
-**Deferred (D — dependency vulns):**
+**D — dependency vulns (applied same day):**
 
-- 6 advisories from `npm audit` (4 high, 2 moderate). All transitive through `@logseq/libs` (`dompurify`, `lodash-es`) and devDeps (`vite`, `picomatch`, `postcss`). Patched versions exist for every one.
-- Recommended approach: bump `@logseq/libs` to `^0.3.3` and `vite` to `^8.x`. Needs a full plugin-reload smoke cycle in a live Logseq DB graph because vite 8 may break the dev-server flow.
-- Tracked here for the next pass.
+- All 6 advisories cleared (`npm audit` now reports 0 vulnerabilities).
+- `@logseq/libs` ^0.3.2 → ^0.3.3 (runtime patch).
+- `vite` ^7.0.0 → ^7.3.2 (kept on vite 7 to avoid the cascading vitest 3 → 4 major bump that vite 8 would force).
+- npm `overrides` added for `dompurify ^3.4.2`, `lodash-es ^4.18.1`, `picomatch ^4.0.4`, `postcss ^8.5.13` — these are transitive vulns the upstream toolchain still pins.
+- `manifest.test.ts` loosened from exact `0.3.2` to `0.3.x ≥ minSDKVersion` so future security patches don't break the test.
+- Static gates green; live plugin smoke pending (next user-driven session).
 
 **Deferred (B — larger refactors):**
 
