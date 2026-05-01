@@ -1,6 +1,11 @@
 import "@logseq/libs";
 import { parseRendererArgs } from "./parser";
-import { readGlobalConfig, resolveConfig, SETTINGS_SCHEMA } from "./config";
+import {
+  getRawSettings,
+  readGlobalConfig,
+  resolveConfig,
+  SETTINGS_SCHEMA,
+} from "./config";
 import { scanChildren, countQueryStatuses, filterByTags } from "./scanner";
 import { aggregate } from "./aggregator";
 import { debug } from "./debug";
@@ -15,7 +20,7 @@ async function main() {
   let themeMode: "light" | "dark" = "dark";
 
   // --- Settings ---
-  logseq.useSettingsSchema(SETTINGS_SCHEMA as any);
+  logseq.useSettingsSchema(SETTINGS_SCHEMA as Parameters<typeof logseq.useSettingsSchema>[0]);
 
   // --- CSS ---
   logseq.provideStyle(PLUGIN_CSS);
@@ -60,7 +65,7 @@ async function main() {
       const config = resolveConfig(globalConfig, overrides);
       debug("resolved config:", config);
       const colorOverrides = parseColorOverrides(
-        (logseq as any).settings?.colorOverrides
+        getRawSettings().colorOverrides
       );
 
       // Auto-detect query block: if the block has :logseq.property/query, treat as query

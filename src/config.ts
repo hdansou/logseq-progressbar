@@ -118,10 +118,19 @@ export const SETTINGS_SCHEMA = [
 ];
 
 /**
+ * Raw `logseq.settings` accessor. Centralized so we have exactly one
+ * `as unknown` cast in the codebase.
+ */
+export function getRawSettings(): Record<string, unknown> {
+  return ((logseq as unknown as { settings?: Record<string, unknown> })
+    .settings) ?? {};
+}
+
+/**
  * Read global config from logseq.settings, falling back to DEFAULTS.
  */
 export function readGlobalConfig(): ProgressBarConfig {
-  const s = (logseq as any).settings || {};
+  const s = getRawSettings();
 
   const tags = s.tagsInScope
     ? String(s.tagsInScope).split(",").map((t: string) => t.trim()).filter(Boolean)
@@ -137,10 +146,13 @@ export function readGlobalConfig(): ProgressBarConfig {
     propertyMappings,
     completeValues,
     depth,
-    strict: s.strictTagFilter ?? DEFAULTS.strict,
-    displayFormat: s.displayFormat ?? DEFAULTS.displayFormat,
-    barWidth: s.barWidth ?? DEFAULTS.barWidth,
-    showOnEmpty: s.showOnEmpty ?? DEFAULTS.showOnEmpty,
+    strict: (s.strictTagFilter as boolean | undefined) ?? DEFAULTS.strict,
+    displayFormat:
+      (s.displayFormat as ProgressBarConfig["displayFormat"] | undefined) ??
+      DEFAULTS.displayFormat,
+    barWidth: (s.barWidth as string | undefined) ?? DEFAULTS.barWidth,
+    showOnEmpty:
+      (s.showOnEmpty as boolean | undefined) ?? DEFAULTS.showOnEmpty,
   };
 }
 
