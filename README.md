@@ -30,12 +30,15 @@ Track progress derived from configurable properties (`status`, `state`, or any c
 ### Development
 
 ```bash
-npm run dev       # Build with watch mode
-npm run test      # Run unit tests
-npm run build     # Production build
+npm run dev         # Rebuild dist/ on change
+npm run dev:serve   # In a second terminal: serve dist/ over HTTP for Logseq to load
+npm run test        # Run unit tests
+npm run typecheck   # Strict TypeScript check
+npm run build       # Production build
 ```
 
-Load the plugin via **Plugins → Load plugin from web url** → `http://127.0.0.1:8080/`
+With both `dev` and `dev:serve` running, load the plugin in Logseq via
+**Plugins → Load plugin from web url** → `http://127.0.0.1:8080/`
 
 ---
 
@@ -69,13 +72,40 @@ Override any global setting per-instance:
 
 ### With a Query
 
-Attach a progress bar to a Logseq query block by UUID:
+Drop the renderer directly into a Logseq query block (the bar is auto-detected
+from `:logseq.property/query`):
+
+```txt
+{{renderer :progress-bar}}
+```
+
+Both query forms are supported:
+
+- **Simple DSL** — Logseq's query DSL. The `(task …)` clause defines which statuses are tracked:
+  ```clj
+  (task "Todo" "Doing" "Done")
+  ```
+
+- **Custom datascript** — full datalog as a `{:query […]}` map or a bare
+  `[:find …]` vector. The `:find` clause must pull blocks (`(pull ?b [*])`
+  or an equivalent shape):
+  ```clj
+  {:query [:find (pull ?b [*])
+           :where
+           [?b :logseq.property/status ?s]
+           (or [?s :db/ident :logseq.property/status.todo]
+               [?s :db/ident :logseq.property/status.doing]
+               [?s :db/ident :logseq.property/status.done])]}
+  ```
+
+To attach a bar to a query block from elsewhere on the page, pass its UUID:
 
 ```txt
 {{renderer :progress-bar, query: 69acb093-df21-438d-9bae-72decf188ed2}}
 ```
 
-The bar aggregates statuses from the query's result set.
+Either way, results are grouped by the tracked property (`status` by default)
+and counted in the plugin.
 
 ---
 
@@ -210,7 +240,9 @@ src/
 ├── colors.ts       — Color palette + segment ordering
 ├── renderer.ts     — HTML rendering + CSS styles
 ├── index.ts        — Main entry: triggers, events, lifecycle
-└── __tests__/      — Unit tests (60 tests)
+├── query.ts        — Query classifier, DSL→datalog, entity adapter, pull enricher
+├── debug.ts        — Verbose-log helper (gated by `debug` setting)
+└── __tests__/      — Unit tests (105 tests across 12 files)
 ```
 
 ### Running Tests
@@ -219,6 +251,18 @@ src/
 npm test            # Run once
 npm run test:watch  # Watch mode
 ```
+
+---
+
+## Privacy
+
+The plugin runs entirely inside your Logseq client. It reads block properties,
+runs Datascript queries against the loaded graph, and writes the rendered bar
+back through Logseq's plugin UI surface. **No data leaves the client** — there
+are no external network calls, no telemetry, and no third-party services.
+
+Settings (tags, property mappings, color overrides) are stored by Logseq in
+its standard plugin-settings file alongside other plugin settings.
 
 ---
 
