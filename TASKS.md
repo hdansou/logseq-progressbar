@@ -257,3 +257,36 @@ environmental concerns as task 6.6** (Logseq 0.3.2 host stability).
 - ❌ No support for `:find` shapes other than `(pull ?b [*])` (or an equivalent that returns block entities). Document this.
 - ❌ No host-side `custom_query` workaround or upstream fix filed from this repo — out of scope.
 - ❌ No in-DB `GROUP BY` / `count` aggregation. Pull blocks, count in JS. Acceptable up to ~low thousands of blocks per query; re-evaluate only if profiling says so.
+
+---
+
+## Production-hardening pass (2026-05-01)
+
+Audit run via `production-readiness` skill. Categories A + C + E applied
+(5 commits, `ecfa2a2` → `c227bc3`). 105/105 tests, typecheck and build all green.
+
+**Applied:**
+
+- **A1** — Collapsed duplicate `:logseq.property/query` lookup. `countQueryStatuses` now returns `null` when the block has no query property, signalling fall-through to children mode. -16 LOC in `index.ts`.
+- **A2** — Verbose info-level logs gated behind a `debug()` helper (settings flag or `window.__LOGSEQ_PROGRESSBAR_DEBUG__`). Errors and warnings still surface.
+- **A3** — Centralized `logseq.settings` access in `getRawSettings()`. Single `as unknown` cast in the codebase.
+- **A4** — Merged duplicate `### Added` blocks under `[Unreleased]`; dropped obsolete "Known Limitations" / "Not Yet Implemented" bullets that Phase 7 already addressed.
+- **C1** — Test count refreshed (60 → 105) in README + CHANGELOG.
+- **C2** — README §Query Integration documents both DSL and custom datascript forms; example matches the original bug-report query.
+- **C3** — CHANGELOG Unreleased: added Fixed entries for the double-bar render and wildcard-pull 0%; cleared stale limitation bullets.
+- **C4** — README dev workflow now mentions `dev:serve`; new `npm run dev:serve` script wraps `vite`.
+- **C5** — README §Privacy: confirms no external network calls / no telemetry.
+- **E1** — `.gitignore`: `.env` / `.env.local` → `.env*`.
+- **E2** — `.gitignore` adds `.cache/` and `.vite/`.
+- **E3** — `@types/node` added; `tsconfig.json` `types: ["vitest/globals", "node"]`. The 3 pre-existing typecheck errors in `manifest.test.ts` clear.
+- **E4** — `npm run typecheck` script added.
+
+**Deferred (D — dependency vulns):**
+
+- 6 advisories from `npm audit` (4 high, 2 moderate). All transitive through `@logseq/libs` (`dompurify`, `lodash-es`) and devDeps (`vite`, `picomatch`, `postcss`). Patched versions exist for every one.
+- Recommended approach: bump `@logseq/libs` to `^0.3.3` and `vite` to `^8.x`. Needs a full plugin-reload smoke cycle in a live Logseq DB graph because vite 8 may break the dev-server flow.
+- Tracked here for the next pass.
+
+**Deferred (B — larger refactors):**
+
+- None scheduled. The remaining `any` casts in `scanner.ts`'s legacy `collectBlocks` / `toBlockData` / `getBlockTagNames` helpers are children-mode only and pre-date Phase 7; would only be worth tightening if children mode gets touched again.
