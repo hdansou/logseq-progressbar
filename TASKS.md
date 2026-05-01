@@ -293,3 +293,7 @@ Audit run via `production-readiness` skill. Categories A + C + E applied
 **Deferred (B — larger refactors):**
 
 - None scheduled. The remaining `any` casts in `scanner.ts`'s legacy `collectBlocks` / `toBlockData` / `getBlockTagNames` helpers are children-mode only and pre-date Phase 7; would only be worth tightening if children mode gets touched again.
+
+**Follow-up later same day (E — marketplace metadata):**
+
+- Second pass surfaced four missing `package.json` fields (`private`, `repository`, `homepage`, `bugs`, `keywords`, `engines.node`). Applied as a single commit (`7721722`). Verify the GitHub URLs match the actual remote when one is configured.
