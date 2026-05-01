@@ -4,6 +4,26 @@
   "author": "Danzu",
   "description": "Visualize task completion as segmented progress bars in Logseq DB graphs",
   "license": "MIT",
+  "private": true,
+  "homepage": "https://github.com/danzu/logseq-progressbar#readme",
+  "bugs": {
+    "url": "https://github.com/danzu/logseq-progressbar/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/danzu/logseq-progressbar.git"
+  },
+  "keywords": [
+    "logseq",
+    "logseq-plugin",
+    "logseq-db",
+    "progress-bar",
+    "tasks",
+    "productivity"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "logseq": {
     "id": "logseq-progressbar",
     "title": "Progress Bar",
