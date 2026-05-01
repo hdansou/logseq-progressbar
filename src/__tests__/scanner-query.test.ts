@@ -73,10 +73,11 @@ describe("countQueryStatuses — unified query pipeline", () => {
     });
 
     const stats = await countQueryStatuses("query-uuid", baseConfig);
-    expect(stats.total).toBe(3);
-    expect(stats.completed).toBe(2);
-    expect(stats.percent).toBe(67);
-    expect(stats.counts).toEqual({ Done: 2, Todo: 1 });
+    expect(stats).not.toBeNull();
+    expect(stats!.total).toBe(3);
+    expect(stats!.completed).toBe(2);
+    expect(stats!.percent).toBe(67);
+    expect(stats!.counts).toEqual({ Done: 2, Todo: 1 });
   });
 
   it("handles the user's custom datalog map query", async () => {
@@ -98,9 +99,10 @@ describe("countQueryStatuses — unified query pipeline", () => {
     });
 
     const stats = await countQueryStatuses("query-uuid", baseConfig);
-    expect(stats.total).toBe(4);
-    expect(stats.completed).toBe(1);
-    expect(stats.counts).toEqual({ Done: 1, Doing: 2, Todo: 1 });
+    expect(stats).not.toBeNull();
+    expect(stats!.total).toBe(4);
+    expect(stats!.completed).toBe(1);
+    expect(stats!.counts).toEqual({ Done: 1, Doing: 2, Todo: 1 });
   });
 
   it("handles a bare datalog vector query", async () => {
@@ -111,11 +113,12 @@ describe("countQueryStatuses — unified query pipeline", () => {
     });
 
     const stats = await countQueryStatuses("query-uuid", baseConfig);
-    expect(stats.total).toBe(2);
-    expect(stats.completed).toBe(1);
+    expect(stats).not.toBeNull();
+    expect(stats!.total).toBe(2);
+    expect(stats!.completed).toBe(1);
   });
 
-  it("returns empty stats when the query block cannot be resolved", async () => {
+  it("returns null when the block has no :logseq.property/query (signals fall-through to children mode)", async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).logseq = {
       DB: { datascriptQuery: vi.fn(async () => null) },
@@ -123,8 +126,7 @@ describe("countQueryStatuses — unified query pipeline", () => {
     };
 
     const stats = await countQueryStatuses("missing-uuid", baseConfig);
-    expect(stats.total).toBe(0);
-    expect(stats.percent).toBe(0);
+    expect(stats).toBeNull();
   });
 
   it("picks the :logseq.property/query DSL, not the block's own '{{renderer …}}' title (regression)", async () => {
@@ -144,8 +146,9 @@ describe("countQueryStatuses — unified query pipeline", () => {
     };
 
     const stats = await countQueryStatuses("query-uuid", baseConfig);
-    expect(stats.total).toBe(2);
-    expect(stats.counts).toEqual({ Done: 1, Todo: 1 });
+    expect(stats).not.toBeNull();
+    expect(stats!.total).toBe(2);
+    expect(stats!.counts).toEqual({ Done: 1, Todo: 1 });
   });
 
   it("returns empty stats (and does not throw) on datascript runtime error", async () => {
@@ -165,7 +168,8 @@ describe("countQueryStatuses — unified query pipeline", () => {
     };
 
     const stats = await countQueryStatuses("query-uuid", baseConfig);
-    expect(stats.total).toBe(0);
+    expect(stats).not.toBeNull();
+    expect(stats!.total).toBe(0);
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });

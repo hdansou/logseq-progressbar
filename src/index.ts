@@ -68,29 +68,14 @@ async function main() {
         getRawSettings().colorOverrides
       );
 
-      // Auto-detect query block: if the block has :logseq.property/query, treat as query
-      if (!config.queryUUID) {
-        try {
-          const entity = await logseq.DB.datascriptQuery(`
-            [:find (pull ?b [:logseq.property/query]) .
-             :where [?b :block/uuid #uuid "${blockUuid}"]]
-          `);
-          if (entity?.[":logseq.property/query"]) {
-            config.queryUUID = blockUuid;
-            debug("auto-detected query block:", blockUuid);
-          }
-        } catch {
-          // not a query block, continue with children scan
-        }
-      }
-
-      // Determine scan mode and get status counts
-      let stats: StatusCounts;
-      if (config.queryUUID) {
-        // Query mode: count statuses directly via datascript
-        stats = await countQueryStatuses(config.queryUUID, config);
-      } else {
-        // Children mode: scan blocks, filter, aggregate
+      // Try query mode (explicit `query: <uuid>` param OR block has :logseq.property/query).
+      // countQueryStatuses returns null when the block has no query property at all,
+      // which is our signal to fall back to children-mode scanning.
+      let stats: StatusCounts | null = await countQueryStatuses(
+        config.queryUUID ?? blockUuid,
+        config
+      );
+      if (stats === null) {
         let blocks = await scanChildren(blockUuid, config);
         blocks = filterByTags(blocks, config);
         stats = aggregate(blocks, config);
@@ -126,12 +111,13 @@ async function main() {
 
       const html = renderBar(segments, stats, config, instanceId);
       logseq.provideUI({ key: instanceId, slot, template: html });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Progress Bar render error:", err);
+      const message = err instanceof Error ? err.message : String(err);
       logseq.provideUI({
         key: instanceId,
         slot,
-        template: `<div class="pb-error">${escapeHtml(err.message)}</div>`,
+        template: `<div class="pb-error">${escapeHtml(message)}</div>`,
       });
     }
   }

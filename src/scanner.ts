@@ -20,13 +20,17 @@ import {
  * One pipeline for every query shape:
  *   UUID → resolveQueryRaw → classify → toBlockDatalog → datascriptQuery
  *        → entityToBlockData[] → aggregate → StatusCounts
+ *
+ * Returns `null` when the block has no `:logseq.property/query` at all so
+ * the caller can fall back to children-mode scanning. Other failure paths
+ * (parse errors, runtime errors) return `emptyStatusCounts()`.
  */
 export async function countQueryStatuses(
   queryUUID: string,
   config: ProgressBarConfig
-): Promise<StatusCounts> {
+): Promise<StatusCounts | null> {
   const raw = await resolveQueryRaw(queryUUID);
-  if (!raw) return emptyStatusCounts();
+  if (!raw) return null;
 
   const kind = classifyQuery(raw);
   const trackedProperty =
