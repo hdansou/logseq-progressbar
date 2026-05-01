@@ -3,12 +3,13 @@ import { parseRendererArgs } from "./parser";
 import { readGlobalConfig, resolveConfig, SETTINGS_SCHEMA } from "./config";
 import { scanChildren, countQueryStatuses, filterByTags } from "./scanner";
 import { aggregate } from "./aggregator";
+import { debug } from "./debug";
 import type { StatusCounts } from "./types";
 import { buildSegments, parseColorOverrides } from "./colors";
 import { renderBar, renderEmpty, PLUGIN_CSS } from "./renderer";
 
 async function main() {
-  console.log("Progress Bar plugin loaded!");
+  debug("plugin loaded");
 
   const offHooks: Array<() => void> = [];
   let themeMode: "light" | "dark" = "dark";
@@ -57,7 +58,7 @@ async function main() {
       const globalConfig = readGlobalConfig();
       const overrides = parseRendererArgs(args);
       const config = resolveConfig(globalConfig, overrides);
-      console.log("[progress-bar] resolved config:", JSON.stringify(config, (_, v) => v === Infinity ? "Infinity" : v));
+      debug("resolved config:", config);
       const colorOverrides = parseColorOverrides(
         (logseq as any).settings?.colorOverrides
       );
@@ -71,7 +72,7 @@ async function main() {
           `);
           if (entity?.[":logseq.property/query"]) {
             config.queryUUID = blockUuid;
-            console.log("[progress-bar] auto-detected query block:", blockUuid);
+            debug("auto-detected query block:", blockUuid);
           }
         } catch {
           // not a query block, continue with children scan
@@ -89,7 +90,7 @@ async function main() {
         blocks = filterByTags(blocks, config);
         stats = aggregate(blocks, config);
       }
-      console.log("[progress-bar] stats:", JSON.stringify(stats));
+      debug("stats:", stats);
 
       // Handle empty state
       if (stats.total === 0) {
@@ -146,7 +147,7 @@ async function main() {
   logseq.App.onMacroRendererSlotted(async ({ slot, payload }) => {
     const args = payload.arguments;
     const type = args[0]?.trim();
-    console.log("[progress-bar] onMacroRendererSlotted:", { type, args, uuid: payload.uuid });
+    debug("onMacroRendererSlotted:", { type, args, uuid: payload.uuid });
 
     if (type !== ":progress-bar") return;
 
@@ -193,7 +194,7 @@ async function main() {
     activeRenderers.clear();
   });
 
-  console.log("Progress Bar plugin ready!");
+  debug("plugin ready");
 }
 
 function escapeHtml(str: string): string {

@@ -1,5 +1,6 @@
 import type { ProgressBarConfig, StatusCounts } from "./types";
 import { aggregate } from "./aggregator";
+import { debug } from "./debug";
 import {
   classifyQuery,
   dslToBlockQuery,
@@ -181,7 +182,7 @@ async function resolveQueryRaw(uuid: string): Promise<string | null> {
       if (isQueryOpener(trimmed[0])) return trimmed;
     }
   } catch (e) {
-    console.log("[progress-bar] datascript resolve error:", e);
+    debug("datascript resolve error:", e);
   }
 
   // Strategy 2: fall back to getBlock and inspect the query property.
@@ -199,10 +200,10 @@ async function resolveQueryRaw(uuid: string): Promise<string | null> {
       if (isQueryOpener(trimmed[0])) return trimmed;
     }
   } catch (e) {
-    console.log("[progress-bar] getBlock error:", e);
+    debug("getBlock error:", e);
   }
 
-  console.warn("[progress-bar] Could not resolve query for block:", uuid);
+  debug("Could not resolve query for block:", uuid);
   return null;
 }
 
