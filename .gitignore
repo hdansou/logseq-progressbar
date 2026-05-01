@@ -2,10 +2,11 @@ node_modules/
 dist/
 .DS_Store
 *.log
-.env
-.env.local
+.env*
 .vscode/*.code-workspace
 coverage/
 *.tsbuildinfo
 .playwright-cli/
 .agents/
+.cache/
+.vite/
