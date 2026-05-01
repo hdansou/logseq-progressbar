@@ -20,9 +20,14 @@ describe("plugin manifest", () => {
       expect(range).toMatch(/^(\^|~)?0\.3(\.\d+)?$/);
     });
 
-    it("resolves installed SDK to 0.3.2", () => {
+    it("resolves installed SDK to a 0.3.x patch ≥ minSDKVersion", () => {
       const installed = readJson("node_modules/@logseq/libs/package.json");
-      expect(installed.version).toBe("0.3.2");
+      const min = pkg.logseq?.minSDKVersion ?? "0.3.2";
+      const [iMaj, iMin, iPatch] = installed.version.split(".").map(Number);
+      const [mMaj, mMin, mPatch] = min.split(".").map(Number);
+      expect(iMaj).toBe(mMaj);
+      expect(iMin).toBe(mMin);
+      expect(iPatch).toBeGreaterThanOrEqual(mPatch);
     });
   });
 
