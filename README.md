@@ -8,7 +8,7 @@ Track progress derived from configurable properties (`status`, `state`, or any c
 
 **DB graphs only** — file-based graphs are not supported.
 
-![Progress bar rendered below three #Task blocks with Todo / Doing / Done statuses, showing 33% complete](docs/screenshot.png)
+![Progress bars on nested task hierarchies and Logseq query blocks — color-coded status segments rolling up to per-parent and per-query completion percentages](docs/screenshot.png)
 
 ---
 
