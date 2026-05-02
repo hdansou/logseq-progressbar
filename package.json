@@ -1,6 +1,6 @@
 {
   "name": "logseq-progressbar",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "author": "Danzu",
   "description": "Visualize task completion as segmented progress bars in Logseq DB graphs",
   "license": "MIT",

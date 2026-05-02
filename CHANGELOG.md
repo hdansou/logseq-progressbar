@@ -7,7 +7,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased]
+## [1.0.0] - 2026-05-01
+
+First marketplace-ready release. Plugin is feature-complete for the Logseq DB
+graph: renderer macro, slash command, query-block auto-detect (DSL + custom
+datascript), real-time updates via `DB.onChanged`, and theme-aware colors.
 
 ### Added
 - **Unified query mode** (Phase 7) — query blocks can now use either the simple DSL (`(task "Todo" "Done")`) or a full custom datascript query as a `{:query [:find … :where …]}` map or bare `[:find … :where …]` vector. Renderer is auto-detected when placed in a query block's title; the explicit `query: <uuid>` param still works for cross-block references. Results are pulled as block entities and grouped/counted in the plugin via `aggregate()`, sharing the exact code path used by children and page modes.

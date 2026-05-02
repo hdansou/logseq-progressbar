@@ -149,9 +149,9 @@
   - Installation instructions
   - Usage examples (manual, auto-detect, query)
   - Settings reference
-- [ ] **5.2** Finalize CHANGELOG.md for v0.1.0
+- [x] **5.2** ~~Finalize CHANGELOG.md for v0.1.0~~ — superseded; cut as **v1.0.0** on 2026-05-01.
 - [x] **5.3** Build production bundle (verified: `npm run build` succeeds)
-- [ ] **5.4** Test production build in Logseq — in progress
+- [x] **5.4** Test production build in Logseq — confirmed live (2026-04-19); doubled-bar + wildcard-pull bugs found and fixed in `4ee122b`.
   - [x] Plugin loads successfully (handshake fixed)
   - [x] Macro renderer fires on `{{renderer :progress-bar}}`
   - [ ] Query mode end-to-end working (DSL resolved, blocks scanned, bar rendered)
