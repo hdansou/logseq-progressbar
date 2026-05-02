@@ -1,12 +1,14 @@
 # Logseq Progress Bar Plugin
 
-![Logseq Progress Bar](icon.svg)
+<img src="icon.svg" alt="Logseq Progress Bar" width="64" />
 
 Visualize task completion as segmented progress bars in Logseq DB graphs.
 
 Track progress derived from configurable properties (`status`, `state`, or any custom enum) on blocks with specified tags (`#Task`, `#Project`, etc.). Supports manual placement, query integration, and real-time updates.
 
 **DB graphs only** — file-based graphs are not supported.
+
+![Progress bar rendered below three #Task blocks with Todo / Doing / Done statuses, showing 33% complete](docs/screenshot.png)
 
 ---
 
