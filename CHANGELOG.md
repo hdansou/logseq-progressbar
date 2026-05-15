@@ -7,7 +7,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased]
+## [1.1.0] - 2026-05-15
+
+Checkbox-property tracking lands as the headline feature: tagged blocks
+with a `:logseq.property/type :checkbox` property roll up into the same
+progress bar as enum-status children, with `#Checklist` → `check` shipped
+as a turnkey default in settings. Wiring the feature up against a real
+Logseq DB graph surfaced five SDK-shape bugs that the unit tests didn't
+catch (user-property ident hash suffixes, compiled-DSL `:in $ %` crash,
+colon-prefixed `:block/tags` key, single-property fallback, stale-slot
+`provideUI` noise, plus an aggregator `false`-filter bug). All fixed and
+covered by 27 new tests (suite: 105 → 132).
 
 ### Added
 
