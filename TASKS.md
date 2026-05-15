@@ -410,3 +410,46 @@ Audit run via `production-readiness` skill. Categories A + C + E applied
   blocks excluded, they enable Strict Tag Filter in settings. If they
   want Tido tracked explicitly, they add `"Tido": "check"` to mappings.
   Documented behavior; no code change needed.
+
+---
+
+## Production-hardening pass (2026-05-14)
+
+Second `production-readiness` skill pass after the Phase 8/9 checkbox
+feature. Baseline green: 132/132 tests · typecheck clean · build clean ·
+**0 vulnerabilities** (the 2026-05-01 overrides block still effective).
+
+**Applied (A + C + E):**
+
+- **A1 + C1** — `README.md` drift fixed: settings defaults table updated
+  to `{"Task": "status", "Checklist": "check"}`, new Examples §"Track a
+  checklist with clickable checkboxes" walks the built-in `#Checklist`
+  flow + reinforces the no-graph-mutation boundary.
+- **E1** — `.gitignore` adds `.claude/` so contributors without the
+  global `~/.config/git/ignore` rule don't accidentally commit
+  `.claude/settings.local.json`.
+- **C2** — initial scope was "line-number drift"; actual state was a
+  pre-Phase-7 architecture snapshot (four-attempt fallback chain,
+  `DB.q()`, `scanQuery`, `stripBetweenClause`). Full rewrite of
+  `docs/query-progress-bar.md` against current code: unified
+  `datascriptQuery` pipeline, Phase 9 fixes (`rewriteCompiledDsl`,
+  `extractTagNames`, `safeProvideUI`, anchored property-key regex),
+  current file/symbol map. `REQUIREMENTS.md` §10–11 also rewritten:
+  dropped speculative debounce + `getTagObjects`/`getTag`/`onRouteChanged`
+  APIs the plugin doesn't actually use; data-flow section now matches
+  `renderProgressBar`'s real branching; added §11.4 cross-link to the
+  architecture doc.
+
+**Deferred:**
+
+- **B1** — split `src/scanner.ts` (298 LOC) into `scanner-query.ts` +
+  `scanner-children.ts`. Real value, moderate diff; revisit before v2.
+- **B2** — tighten remaining 5 `any` casts in `scanner.ts` (`collectBlocks`,
+  `resolveQueryRaw` SDK shape unwrapping). Touch when those code paths get
+  reworked.
+
+**No findings:**
+
+- **D** — `npm audit` clean.
+- No tracked artifacts, no secrets, no `0.0.0.0` bindings, no
+  credential-shaped textareas.

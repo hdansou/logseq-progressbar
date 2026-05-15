@@ -254,9 +254,16 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 
 ## 10. Performance
 
-- **Real-time updates** via `DB.onChanged` event listener.
-- Fallback to **debounced updates** (300ms) if real-time performance degrades on large pages (50+ tasks).
-- Compute progress from in-memory data; avoid redundant DB queries when possible.
+- **Real-time updates** via `DB.onChanged` event listener — every DB
+  mutation triggers `rerenderAll` over `activeRenderers`. Each entry's
+  slot is re-validated (`UI.checkSlotValid`) and stale slots are pruned
+  before re-rendering.
+- No debounce in current implementation — graphs of 50+ blocks have
+  rendered fine in practice. Add a debounce layer behind a setting if
+  profiling shows real-time updates degrading.
+- Compute progress from in-memory data; query mode uses a single
+  `datascriptQuery` to pull all matching blocks with their tags +
+  tracked property resolved inline (no per-block round-trips).
 
 ---
 
@@ -264,17 +271,30 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 
 ### 11.1 Plugin API Usage
 
-Targets `@logseq/libs ^0.3.2`. All API calls below are stable across 0.2.x → 0.3.x.
+Targets `@logseq/libs ^0.3.2`. Concrete calls used by the current
+implementation (not aspirational):
 
-- **Rendering**: `App.onMacroRendererSlotted` for `{{renderer :progress-bar}}` blocks.
-- **Auto-detect**: `App.onRouteChanged` + `DB.onChanged` to detect and render on matching pages/blocks.
-- **Query results**: `DB.datascriptQuery` to fetch query result blocks by UUID.
-- **Properties**: `Editor.getBlockProperties` / `Editor.getTagObjects` for reading status values.
-- **Tags**: `Editor.getTag` / `Editor.getTagsByName` for tag resolution.
-- **Settings**: `useSettingsSchema` + `onSettingsChanged` for the global settings panel. Under 0.3.x, `onSettingsChanged` is invoked with clean `(nextSettings, previousSettings)` snapshots; the plugin's args-less handler is unaffected.
+- **Rendering**: `App.onMacroRendererSlotted` for `{{renderer :progress-bar}}`.
+  Each invocation registers in `activeRenderers` for re-render bookkeeping.
+- **Query results**: `DB.datascriptQuery` for both query-block resolution
+  (`:logseq.property/query → :block/title`) and bulk pulls of matching
+  blocks with inline tag / tracked-property resolution.
+- **Children mode**: `Editor.getBlock(uuid, {includeChildren: true})` for
+  the parent + `Editor.getBlockProperties(childUuid)` per child. Tags are
+  read from the props record under `":block/tags"` (DB graphs), with
+  fallbacks for legacy key shapes. No separate `getTag`/`getTagObjects`
+  calls.
+- **Settings**: `useSettingsSchema` + `onSettingsChanged` for the global
+  settings panel. The plugin's `onSettingsChanged` handler is args-less
+  and just calls `rerenderAll`.
 - **Theme**: `App.onThemeModeChanged` for dark/light adaptation.
-- **UI**: `provideUI` + `provideStyle` for rendering the bar and injecting CSS. `UI.checkSlotValid` drops stale slots before re-render.
-- **Transport**: The 0.3.x host uses MessageChannel-based plugin ↔ core transport (with postmate fallback); transparent to this plugin.
+- **UI**: `provideUI` + `provideStyle`. **All `provideUI` calls go through
+  the local `safeProvideUI` helper** in `renderProgressBar` which
+  re-checks `UI.checkSlotValid` immediately before the call — slots can
+  unmount during the async DB work between the macro firing and the
+  render.
+- **Lifecycle**: `logseq.beforeunload` clears `activeRenderers` and runs
+  the off-hook list collected during `main()`.
 
 ### 11.2 Renderer Macro Format
 
@@ -288,14 +308,23 @@ Targets `@logseq/libs ^0.3.2`. All API calls below are stable across 0.2.x → 0
 ### 11.3 Data Flow
 
 ```txt
-1. Trigger (route change / DB change / macro render)
-2. Resolve scope (parent block children, page blocks, or query results)
-3. Filter by tags in scope (strict or inclusive)
-4. Read tracked property values from matching blocks
-5. Aggregate counts per status value
-6. Compute completion percentage
-7. Render segmented bar with tooltip
+1. Trigger (DB.onChanged | onSettingsChanged | onThemeModeChanged | macro slot)
+2. renderProgressBar(slot, args, blockUuid):
+   2a. Parse args + resolve config (global ↔ per-instance overrides)
+3. countQueryStatuses(uuid):
+   ├── resolveQueryRaw → classify → toBlockDatalog → datascriptQuery
+   │   → entityToBlockData[] → aggregate → StatusCounts
+   └── returns null if the block has no :logseq.property/query
+4. (fallback when 3 returns null) scanChildren → filterByTags → aggregate
+5. buildSegments(counts, total, completeValues, themeMode, overrides)
+6. renderBar(segments, stats, config) → HTML
+7. safeProvideUI(template) — drops the call if the slot is gone
 ```
+
+### 11.4 Architecture reference
+
+Detailed pipeline walkthrough, design decisions, and file/symbol map:
+[`docs/query-progress-bar.md`](./docs/query-progress-bar.md).
 
 ---
 

@@ -10,3 +10,4 @@ coverage/
 .agents/
 .cache/
 .vite/
+.claude/

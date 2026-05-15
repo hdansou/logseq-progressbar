@@ -136,9 +136,9 @@ Open **Plugins → Progress Bar → Settings** to configure global defaults.
 
 | Setting           | Default                | Description                                         |
 | ----------------- | ---------------------- | --------------------------------------------------- |
-| Tags in Scope     | `Task`                 | Comma-separated tag names to track                  |
-| Property Mappings | `{"Task": "status"}`   | JSON mapping each tag to its progress property      |
-| Complete Values   | `{"status": ["Done"]}` | JSON mapping each property to its "complete" values |
+| Tags in Scope     | `Task, Checklist`                            | Comma-separated tag names to track                                                          |
+| Property Mappings | `{"Task": "status", "Checklist": "check"}`   | JSON mapping each tag to its progress property. Checkbox-typed properties self-bucket (`true` → Done, `false` → Todo). |
+| Complete Values   | `{"status": ["Done"]}`                       | JSON mapping each property to its "complete" values (string properties only — booleans bypass this). |
 
 ### Display Settings
 
@@ -225,6 +225,30 @@ Result: segmented bar showing 1/3 complete (33%).
   - Add search #Task (status: Doing)
   - Update docs #Task (status: Todo)
 ```
+
+### Track a checklist with clickable checkboxes
+
+The plugin ships `#Checklist` → `check` (a `:checkbox` property) as a built-in
+default in settings. Tag children with `#Checklist` (or your own class that
+declares a `:checkbox` property) — Logseq renders a native clickable checkbox
+on the left of the block, and the progress bar updates in real time as you
+toggle items.
+
+```txt
+- Trip prep {{renderer :progress-bar}}
+  - ☐ Book flights #Checklist
+  - ☑ Pack passport #Checklist
+  - ☑ Confirm hotel #Checklist
+  - ☐ Notify cat-sitter #Checklist
+```
+
+Result: 2/4 complete (50%). `true` lands in the **Done** bucket, `false` in
+**Todo**. The plugin does **not** create the `#Checklist` class or `check`
+property — author them yourself (or rename in settings to point at any class
+you've already built, e.g. `{"MyChecklist": "done"}`).
+
+Checkbox and enum-status children can live under the same parent — they roll
+up into one bar.
 
 ---
 

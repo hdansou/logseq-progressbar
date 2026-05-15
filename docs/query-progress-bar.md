@@ -1,46 +1,98 @@
-# Query Progress Bar: Architecture & Data Flow
+# Progress Bar: Architecture & Data Flow
+
+Current as of Phase 9 (2026-05). Reflects the unified `datascriptQuery`
+pipeline from Phase 7 plus the Phase 8/9 checkbox-tracking and real-graph
+SDK fixes. Supersedes the pre-Phase-7 "four-attempt fallback" architecture.
 
 ## Overview
 
-The progress bar plugin supports two scan modes: **child-block scanning** (default) and **query-block scanning**. This document covers the query path end-to-end, from detecting a query block through rendering the final progress bar.
+The plugin renders a single `{{renderer :progress-bar}}` macro through two
+selectable scan paths:
 
-The query path solves a hard problem: re-executing Logseq query DSL from the plugin sandbox, where several API features (date bindings, task predicates) don't work the same as in Logseq's internal query engine.
+1. **Query mode** — the block hosting the macro has a `:logseq.property/query`
+   (or the macro carries an explicit `query: <uuid>` arg).
+2. **Children mode** — fallback for any block without a query property.
+   Scans the block's descendants.
 
----
-
-## 1. Query Block Detection (`index.ts:61-75`)
-
-When `{{renderer :progress-bar}}` is placed inside a block, the plugin needs to determine whether that block is a **query node** (Logseq `#Query` block) or a regular block with children.
-
-**Auto-detection via datascript:**
-
-```clojure
-[:find (pull ?b [:logseq.property/query]) .
- :where [?b :block/uuid #uuid "<blockUuid>"]]
-```
-
-If the entity has a `:logseq.property/query` property (even as a reference `{db/id: N}`), the block is treated as a query block and `config.queryUUID` is set to the block's UUID.
-
-This means users don't need to pass `query: <uuid>` in the macro arguments -- the plugin figures it out automatically.
-
-**Manual override:** Users can still pass `query: <uuid>` as a renderer argument to point at a different query block.
+Both paths converge on the same aggregation engine
+(`src/aggregator.ts:aggregate`) so rolling up enum statuses, checkbox
+booleans, and mixed children works identically regardless of scan path.
 
 ---
 
-## 2. DSL Resolution (`scanner.ts:269-345`)
+## 1. Entry point — `index.ts:main → renderProgressBar`
 
-In DB graphs, `:logseq.property/query` stores a **reference** (`{db/id: N}`) to a property value entity, not the raw DSL string. The SDK's `getBlockProperty` returns the definition entity, not the actual value. Three strategies attempt to extract the DSL string:
+`logseq.App.onMacroRendererSlotted` fires for every visible
+`{{renderer :progress-bar}}`. Each invocation creates a slot-scoped
+instance key (`pb-<slot>`) and is tracked in `activeRenderers` so
+`DB.onChanged` / `onSettingsChanged` / `onThemeModeChanged` can re-render
+the right bars without scanning the page.
 
-### Strategy 1: Pull full entity
+`renderProgressBar` flow (`src/index.ts:52-121`):
 
-```clojure
-[:find (pull ?b [*]) .
- :where [?b :block/uuid #uuid "<uuid>"]]
+```
+parse args → resolve config → countQueryStatuses(uuid) ──┐
+                                                          ▼
+                                  null? ──── yes ──→ scanChildren + filterByTags + aggregate
+                                  no                       │
+                                  │                        ▼
+                                  └────────────→ stats: StatusCounts
+                                                          │
+                                  stats.total === 0? ─── yes ──→ renderEmpty (if showOnEmpty) | ""
+                                  no                       │
+                                  ▼                        ▼
+                            buildSegments  ────→  renderBar(html)
+                                                          │
+                                                          ▼
+                                            safeProvideUI(slot, html)
 ```
 
-Walks all key-value pairs looking for a string that starts with `(` and ends with `)` (valid DSL). Checks one level of nested objects too.
+`safeProvideUI` re-checks `logseq.UI.checkSlotValid(slot)` immediately
+before each `provideUI` call. Async DB work between the macro firing and
+the call can straddle a slot unmount; without the guard, Logseq logs
+`can not resolve selector target #slot__xxx`.
 
-### Strategy 2: Resolve the query reference's title
+---
+
+## 2. Query mode — `scanner.ts:countQueryStatuses`
+
+One pipeline, every query shape:
+
+```
+queryUUID
+   │
+   ▼
+resolveQueryRaw ────► raw string starting with "(" | "{" | "["
+   │                  (or null → caller falls back to children mode)
+   ▼
+classifyQuery  ────► "dsl" | "datalog-map" | "datalog-vec" | "empty" | "unknown"
+   │
+   ▼
+┌─ "dsl" ──────────────────────► parseDSL + dslToBlockQuery
+├─ "datalog-map" ───► extractDatalogVector ──┐
+└─ "datalog-vec" ───► raw.trim() ────────────┤
+                                              ▼
+                              rewriteCompiledDsl(vec)
+                                ├─ matched: route to dslToBlockQuery
+                                └─ null:    enrichPull(vec, trackedProperty)
+   │
+   ▼
+datalog string (always native, never declares :in $ %)
+   │
+   ▼
+logseq.DB.datascriptQuery(datalog)
+   │
+   ▼
+rowsToBlocks → entityToBlockData[]
+   │
+   ▼
+aggregate(blocks, config) → StatusCounts
+```
+
+### Raw-query resolution (`scanner.ts:resolveQueryRaw`)
+
+Two strategies. Strategy 1 (preferred): a datascript pull that follows
+the `:logseq.property/query` reference chain directly:
 
 ```clojure
 [:find ?q .
@@ -50,178 +102,176 @@ Walks all key-value pairs looking for a string that starts with `(` and ends wit
  [?qid :block/title ?q]]
 ```
 
-Follows the reference chain: block -> query property ref -> the ref's `:block/title`, which contains the actual DSL string.
+Strategy 2 (fallback): `logseq.Editor.getBlock(uuid)` and walk
+`logseq.property/query` on the returned object. Kept for environments
+where the datascript pull is flaky.
 
-### Strategy 3: `getBlock()` + deep inspect
+Returns `null` if the block has no `:logseq.property/query`. The caller
+treats that as the signal to fall back to children mode.
 
-Falls back to `logseq.Editor.getBlock(uuid)` and recursively inspects the block object and its `.properties` for DSL strings.
+### Why round-trip compiled DSL back to DSL? (`query.ts:rewriteCompiledDsl`)
 
-**Result:** A DSL string like `(and (task "Done" "Doing" "Todo") (between [[uuid1]] [[uuid2]]))`
-
----
-
-## 3. Four-Attempt Query Execution (`scanner.ts:59-95`)
-
-The resolved DSL may contain clauses the plugin API can't handle. A fallback chain tries progressively simpler approaches:
-
-### Attempt 1: Execute full DSL via `DB.q()`
-
-```typescript
-const res = await logseq.DB.q(queryStr);
-```
-
-Works for simple queries like `(tags [[Task]])`. Fails for queries with `(between ...)` (needs date bindings) or `(task ...)` (may return empty in DB graphs via plugin API).
-
-### Attempt 2: Strip `(between ...)` and retry
-
-`stripBetweenClause()` removes date-range clauses:
-
-```
-Input:  (and (task "Done" "Doing" "Todo") (between [[uuid1]] [[uuid2]]))
-Output: (task "Done" "Doing" "Todo")
-```
-
-Also cleans up leftover `(and X)` wrappers to just `X`.
-
-**Trigger condition:** Attempt 1 returned empty (`!queryResults?.length`). This is important -- an empty array `[]` from attempt 1 no longer blocks fallbacks.
-
-### Attempt 3: Datascript task status query
-
-Parses `(task "Done" "Doing" "Todo")` to extract status values, then queries directly:
+Logseq sometimes stores simple `(task "Done" "Todo")` queries as
+**pre-compiled datalog** in `:block/title`:
 
 ```clojure
-[:find (pull ?b [:block/uuid])
- :where
- [?b :logseq.property/status ?s]
- [?s :block/title "Done"]
- ;; Optional date filtering:
- [?b :block/page ?p]
- [?p :block/journal-day ?d]
- [(>= ?d 20260307)]
- [(<= ?d 20260309)]]
+[:find (pull ?b [*])
+ :in $ %
+ :where (task ?b #{"Done" "Todo"})]
 ```
 
-**Date parsing from journal UUIDs:** DB graph journal pages use deterministic UUIDs with pattern `00000001-YYYY-MMDD-0000-000000000000`. The function `parseBetweenDates()` extracts `YYYYMMDD` integers for datascript comparison.
+The `:in $ %` declares a rules input we don't pass — `datascriptQuery`
+throws `Too few inputs passed, expected: [$ %]`. `rewriteCompiledDsl`
+extracts the status set, emits a clean `(task "Done" "Todo")` DSL string,
+and the pipeline takes the regular DSL branch from there. Simpler than
+implementing a Logseq rule expander.
 
-Runs one query per status value, deduplicates results by UUID.
+### Why enrichPull on raw datalog? (`query.ts:enrichPull`)
 
-### Attempt 4: `getTagObjects()` fallback
+User-supplied `(pull ?b [*])` patterns return property refs as
+`{:db/id N}` stubs. `enrichPull` injects ref-resolution hints
+(`{:block/tags [:block/title]}` and `{:logseq.property/<tracked>
+[:block/title]}`) so the aggregator sees resolved title strings instead
+of stubs. No-op for explicit pull specs — merging into arbitrary pull
+shapes would need a real EDN parser (YAGNI).
 
-Extracts `[[tag]]` references from the DSL via regex and calls `logseq.Editor.getTagObjects(tagName)` for each. Last resort when all other approaches fail.
+### Entity → BlockData adapter (`query.ts:entityToBlockData`)
+
+Tolerates the four key shapes Logseq's JSON normalization may emit
+(`block/uuid`, `:block/uuid`, plain `uuid`, plain `:uuid`). Picks up
+properties with `logseq.property/` or `:logseq.property/` prefixes;
+user-defined property idents are handled downstream by the aggregator's
+suffix matcher.
 
 ---
 
-## 4. UUID Resolution (`scanner.ts:99-118`)
+## 3. Children mode — `scanner.ts:scanChildren`
 
-**The problem:** `DB.q()` in DB graphs returns entities as `{id: N}` (numeric entity IDs) without a `uuid` field. The rest of the pipeline needs string UUIDs to call `getBlock()`, `getBlockProperties()`, etc.
+Used when the block hosting the macro has no `:logseq.property/query`.
 
-**The fix:** For each result missing `.uuid`, resolve it via datascript:
-
-```clojure
-[:find ?u .
- :where [<entity-id> :block/uuid ?u]]
+```
+parentUUID
+   │
+   ▼
+logseq.Editor.getBlock(uuid, {includeChildren: true})
+   │   (block.children is a tree; nil/empty → return [])
+   ▼
+collectBlocks (depth-first, honors config.depth)
+   │
+   ▼  per child uuid:
+toBlockData
+   ├── logseq.Editor.getBlockProperties(uuid) → props
+   └── extractTagNames(props, block)          → tag titles
+   │
+   ▼
+BlockData[]
+   │
+   ▼
+filterByTags (strict mode only — drops untagged blocks)
+   │
+   ▼
+aggregate(blocks, config) → StatusCounts
 ```
 
-The resolved UUID (which may come back as a UUID object) is coerced to a string and attached to the block before passing to `toBlockData()`.
+### Why `extractTagNames` instead of a tag SDK call?
+
+DB graphs return tags under the colon-prefixed key
+`":block/tags"` in `getBlockProperties`, as a plain string array
+(`["Tido"]`). `extractTagNames` (`scanner.ts:270-298`) walks that key
+chain (`:block/tags` → `block/tags` → `tags` → top-level `block.tags`)
+and handles both plain-string and entity-object element shapes. Pure /
+synchronous — runs on the props already fetched, so `toBlockData`
+doesn't double its SDK round-trips.
 
 ---
 
-## 5. Block Data Assembly (`scanner.ts:390-430`)
+## 4. Aggregation — `aggregator.ts:aggregate`
 
-Each block with a resolved UUID is enriched into a `BlockData`:
-
-```typescript
-interface BlockData {
-  uuid: string;
-  tags: string[];              // e.g. ["Task"]
-  properties: Record<string, unknown>;  // e.g. {status: "Done"}
-}
+```
+for each block:
+  1. resolvePropertyCandidates(block.tags, mapping)
+     ├── tag-matched properties first
+     └── fallback: ALL mapped properties (defensive when tag reader returns [])
+  2. for each candidate in order, readPropertyValue(props, candidate)
+     ├── anchored regex `^:?(.+/)?<name>(?:-[A-Za-z0-9]+)?$`
+     ├── covers plain, `logseq.property/`, `:logseq.property/`,
+     │   AND `user.property/<name>-<8charhash>` shapes
+     └── stop on first non-null value
+  3. label / completion:
+     ├── boolean true  → label "Done", completed++
+     ├── boolean false → label "Todo"
+     └── string        → label = value, completed iff value ∈ completeSet
+  4. counts[label]++, total++
 ```
 
-**Tag extraction** handles multiple formats from the SDK:
-- `props.tags` (array of strings)
-- `props["block/tags"]` (alternative key)
-- Tag reference objects with `.name`, `.title`, or `.content` fields
+The anchored boundary in the property regex stops looking up `check` from
+false-matching `check-version-XXXX`. Booleans bypass the `completeValues`
+map entirely — `true` always counts as complete, `false` never does. This
+keeps a checkbox tag's configuration to a single line in
+`propertyMappings` (e.g. `"Checklist": "check"`).
 
 ---
 
-## 6. Aggregation Pipeline
+## 5. Rendering — `colors.ts` + `renderer.ts`
 
-### Tag Filtering (`scanner.ts:352-366`)
+`buildSegments` (`colors.ts:64`):
+- Computes `percent = count / total * 100` per status label
+- Picks a `StatusColor` for `themeMode`, applying any user override
+- Sorts: complete states left, pending right, with priority within each
+  (Done > Canceled > In Review > Doing > Todo > Backlog)
 
-- **Strict mode:** Only blocks with at least one matching tag from `config.tags`
-- **Inclusive mode** (default): All blocks pass through; tag-to-property mapping happens during aggregation
+`renderBar` (`renderer.ts:7`):
+- Emits a single `<div class="pb-wrapper">` with one `<div class="pb-segment">`
+  per status
+- Builds the hover tooltip as the `title` attribute of `pb-bar` (newline-separated
+  status: count lines + total)
+- Appends the formatted label (`percent` / `fraction` / `both`)
 
-### Status Counting (`aggregator.ts`)
-
-For each block:
-1. Find the property to read via tag-to-property mapping
-2. Extract the string value (handles nested objects with `.name`/`.title`)
-3. Increment `counts[statusValue]`
-4. Check if the value is in `completeValues` to count completions
-
-**Output:** `StatusCounts { counts: {"Done": 3, "Todo": 2}, total: 5, completed: 3, percent: 60 }`
-
-### Segment Building (`colors.ts`)
-
-Each status becomes a `BarSegment` with:
-- Percentage width: `count / total * 100`
-- Color from theme-aware palette (defaults for done/doing/todo/canceled, or user overrides)
-- Sort order: completed first, then by priority (Done > Canceled > In Review > Doing > Todo > Backlog)
+`PLUGIN_CSS` is injected once at plugin init via `logseq.provideStyle`.
+Segment widths animate via CSS transition.
 
 ---
 
-## 7. HTML Rendering (`renderer.ts`)
+## 6. Real-time updates
 
-```html
-<div class="pb-wrapper" data-id="pb-<uuid>">
-  <div class="pb-bar" title="Done: 3&#10;Todo: 2&#10;───&#10;Total: 5">
-    <div class="pb-segment" style="width:60%;background:#22c55e"></div>
-    <div class="pb-segment" style="width:40%;background:#9ca3af"></div>
-  </div>
-  <span class="pb-label">60%</span>
-</div>
-```
+`activeRenderers: Map<key, {slot, args, uuid}>` accumulates every macro
+slot the plugin has handled. Three host events drive `rerenderAll`:
 
-Segment widths animate with `transition: width 0.4s ease-in-out`.
+| Event                       | Where registered     | Action                              |
+| --------------------------- | -------------------- | ----------------------------------- |
+| `DB.onChanged`              | `index.ts:167`       | Any DB mutation → re-render all     |
+| `onSettingsChanged`         | `index.ts:175`       | Settings panel saved → re-render    |
+| `App.onThemeModeChanged`    | `index.ts:38`        | Light/dark toggle → re-render       |
 
----
-
-## 8. Real-Time Updates
-
-The plugin maintains an `activeRenderers` Map tracking every rendered progress bar by `slot + blockUuid`.
-
-Three events trigger `rerenderAll()`:
-- **`DB.onChanged`** -- any database mutation (task status change, block edit)
-- **`onSettingsChanged`** -- plugin settings update
-- **`onThemeModeChanged`** -- light/dark theme switch
-
-Each re-render checks `logseq.UI.checkSlotValid(slot)` first. Invalid slots (navigated away) are pruned from the map.
+`rerenderAll` (`index.ts:124-133`) checks `UI.checkSlotValid` for each
+entry before re-invoking `renderProgressBar`; stale entries are pruned.
 
 ---
 
-## Key Design Decisions
+## 7. File / symbol map
 
-| Decision | Rationale |
-|----------|-----------|
-| Auto-detect via datascript, not block tags | Tags can be renamed; `:logseq.property/query` is the source of truth |
-| Four-attempt fallback chain | Plugin API `DB.q()` doesn't support all DSL features (date bindings, task predicates) |
-| Resolve UUIDs from entity IDs | `DB.q()` returns `{id: N}` in DB graphs, not `{uuid: "..."}` |
-| Parse journal UUIDs for date range | `(between ...)` references journal pages by their deterministic UUID pattern |
-| Use `:logseq.property/status` not `:logseq.task/status` | DB graphs store task status under the generic property namespace |
-| Check `!queryResults?.length` not `!queryResults` | Empty arrays from successful-but-empty queries must not block fallback attempts |
+| File                | Role                                                                          |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `src/index.ts`      | Plugin lifecycle, macro/slash handlers, `renderProgressBar`, `safeProvideUI`, `rerenderAll`, `activeRenderers` |
+| `src/parser.ts`     | `parseRendererArgs` — turns macro arg strings into a config-override record   |
+| `src/config.ts`     | `DEFAULTS`, `SETTINGS_SCHEMA`, `readGlobalConfig`, `resolveConfig`            |
+| `src/scanner.ts`    | Query mode (`countQueryStatuses`, `resolveQueryRaw`, `buildDslDatalog`, `rowsToBlocks`) + children mode (`scanChildren`, `scanPage`, `collectBlocks`, `toBlockData`, `extractTagNames`) + tag filter (`filterByTags`) |
+| `src/query.ts`      | Pure pipeline pieces: `classifyQuery`, `extractDatalogVector`, `parseDSL`, `dslToBlockQuery`, `rewriteCompiledDsl`, `enrichPull`, `entityToBlockData`, `QueryParseError` |
+| `src/aggregator.ts` | `aggregate`, `formatLabel`, `resolvePropertyCandidates`, `readPropertyValue`  |
+| `src/colors.ts`     | `getStatusColor`, `buildSegments`, `parseColorOverrides`                      |
+| `src/renderer.ts`   | `renderBar`, `renderEmpty`, `PLUGIN_CSS`                                      |
+| `src/debug.ts`      | `debug()` — gated console.log (settings flag or `window.__LOGSEQ_PROGRESSBAR_DEBUG__`) |
+| `src/types.ts`      | `ProgressBarConfig`, `StatusCounts`, `StatusColor`, `BarSegment`              |
 
 ---
 
-## File Map
+## 8. Key design decisions
 
-| File | Role |
-|------|------|
-| `index.ts:61-75` | Query block auto-detection |
-| `scanner.ts:42-120` | `scanQuery()` -- orchestrates DSL resolution, fallback chain, UUID resolution |
-| `scanner.ts:125-215` | Task status parsing, date parsing, datascript fallback queries |
-| `scanner.ts:269-345` | `resolveQueryDSL()` -- three-strategy DSL extraction |
-| `aggregator.ts` | Status counting and completion percentage |
-| `colors.ts` | Theme-aware color mapping and segment sorting |
-| `renderer.ts` | HTML generation with tooltips and animations |
-| `types.ts` | `ProgressBarConfig`, `StatusCounts`, `BarSegment` interfaces |
+| Decision                                                              | Rationale                                                                                                            |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| One pipeline for DSL, datalog-map, datalog-vec                        | DRY — children, page, and query modes all feed `aggregate()`                                                         |
+| Rewrite compiled `(task ?v #{…})` to clean DSL instead of rule expansion | Avoids replicating Logseq's host-internal rule library; one path keeps emitting native datalog                       |
+| Anchored regex for property-key match                                 | User-defined property idents get a random hash suffix; the anchor stops `check` from matching `check-version-XXXX` |
+| Booleans bypass `completeValues`                                      | `true`/`false` carry their own complete semantics; checkbox tags need only one settings line                          |
+| Plugin never mutates the user's graph                                 | Design boundary — users author classes/properties themselves                                                          |
+| Auto-detect (no manual renderer) deferred                             | Phase 3.4 unimplemented; manual `{{renderer :progress-bar}}` is the only render trigger today                         |
