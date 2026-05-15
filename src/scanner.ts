@@ -9,6 +9,7 @@ import {
   extractDatalogVector,
   parseDSL,
   QueryParseError,
+  rewriteCompiledDsl,
   type BlockData,
 } from "./query";
 
@@ -38,23 +39,16 @@ export async function countQueryStatuses(
 
   let datalog: string;
   try {
-    switch (kind) {
-      case "dsl": {
-        const parsed = parseDSL(raw);
-        datalog = dslToBlockQuery(parsed, {
-          trackedProperty,
-          resolvedTags: await resolveUUIDRefs(parsed.tagFilters),
-        });
-        break;
-      }
-      case "datalog-map":
-        datalog = enrichPull(extractDatalogVector(raw), trackedProperty);
-        break;
-      case "datalog-vec":
-        datalog = enrichPull(raw.trim(), trackedProperty);
-        break;
-      default:
-        return emptyStatusCounts();
+    if (kind === "dsl") {
+      datalog = await buildDslDatalog(raw, trackedProperty);
+    } else if (kind === "datalog-map" || kind === "datalog-vec") {
+      const vec = kind === "datalog-map" ? extractDatalogVector(raw) : raw.trim();
+      const rewritten = rewriteCompiledDsl(vec);
+      datalog = rewritten
+        ? await buildDslDatalog(rewritten, trackedProperty)
+        : enrichPull(vec, trackedProperty);
+    } else {
+      return emptyStatusCounts();
     }
   } catch (e) {
     if (e instanceof QueryParseError) {
@@ -69,9 +63,29 @@ export async function countQueryStatuses(
     const blocks = rowsToBlocks(rows);
     return aggregate(blocks, config);
   } catch (e) {
-    console.error("[progress-bar] datascript query failed:", e);
+    console.error(
+      "[progress-bar] datascript query failed:",
+      e,
+      "\n  queryUUID:",
+      queryUUID,
+      "\n  datalog:",
+      datalog
+    );
     return emptyStatusCounts();
   }
+}
+
+/** Build a block-pull datalog from a DSL string. Shared by `dsl` and the
+ * compiled-DSL rewrite path so both routes land on the same generator. */
+async function buildDslDatalog(
+  dsl: string,
+  trackedProperty: string
+): Promise<string> {
+  const parsed = parseDSL(dsl);
+  return dslToBlockQuery(parsed, {
+    trackedProperty,
+    resolvedTags: await resolveUUIDRefs(parsed.tagFilters),
+  });
 }
 
 /** Unwrap [[<entity>], …] pull-row shape into BlockData[]. */
@@ -239,37 +253,46 @@ async function collectBlocks(
 
 async function toBlockData(block: any): Promise<BlockData | null> {
   if (!block?.uuid) return null;
-
-  const full = await logseq.Editor.getBlock(block.uuid);
-  if (!full) return null;
-
   const props = (await logseq.Editor.getBlockProperties(block.uuid)) ?? {};
-  const tags = await getBlockTagNames(block.uuid);
-
   return {
     uuid: block.uuid,
-    tags,
+    tags: extractTagNames(props as Record<string, unknown>, block),
     properties: props,
   };
 }
 
-async function getBlockTagNames(uuid: string): Promise<string[]> {
-  try {
-    const block = await logseq.Editor.getBlock(uuid);
-    if (!block) return [];
+/**
+ * Pull tag titles out of an already-fetched properties record. DB graphs
+ * key tags as `":block/tags"` (colon-prefixed) with plain string values;
+ * legacy shapes use other keys or entity objects. Pure / synchronous so
+ * `toBlockData` doesn't re-hit the SDK per block.
+ */
+function extractTagNames(
+  props: Record<string, unknown>,
+  block: { tags?: unknown }
+): string[] {
+  const raw =
+    props[":block/tags"] ??
+    props["block/tags"] ??
+    props.tags ??
+    block.tags ??
+    [];
+  if (!Array.isArray(raw)) return [];
+  return raw.map(tagToTitle).filter((s): s is string => s.length > 0);
+}
 
-    const props = block.properties ?? {};
-    const tagsProp = props.tags ?? props["block/tags"] ?? [];
-    if (Array.isArray(tagsProp)) {
-      return tagsProp
-        .map((t: any) =>
-          typeof t === "string" ? t : t?.name ?? t?.title ?? t?.content ?? ""
-        )
-        .filter(Boolean);
-    }
-
-    return [];
-  } catch {
-    return [];
+function tagToTitle(t: unknown): string {
+  if (typeof t === "string") return t;
+  if (t && typeof t === "object") {
+    const o = t as Record<string, unknown>;
+    return (
+      (o["block/title"] as string | undefined) ??
+      (o[":block/title"] as string | undefined) ??
+      (o.title as string | undefined) ??
+      (o.name as string | undefined) ??
+      (o.content as string | undefined) ??
+      ""
+    );
   }
+  return "";
 }

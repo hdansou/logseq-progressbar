@@ -7,6 +7,86 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Checkbox-property tracking** (Phase 8) — tagged blocks with a
+  `:logseq.property/type :checkbox` property now roll up into the same
+  progress bar as enum-status children. `true` → Done bucket + counted as
+  completed; `false` → Todo bucket + not completed. The `completeValues`
+  map is bypassed for boolean values, so a checkbox tag needs only a single
+  line in `propertyMappings` (e.g., `"Checklist": "check"`).
+- **Default `Checklist` → `check` mapping** shipped in settings. The plugin
+  does not create the class or property in the user's graph — users author
+  their own class (any name works; rename in settings if needed).
+- **`rewriteCompiledDsl`** in `src/query.ts` — round-trips Logseq's
+  compiled simple-query datalog (`[:find … :in $ % :where (task ?b #{…})]`)
+  back into clean DSL so `dslToBlockQuery` can emit rule-free datalog.
+- Diagnostic: failed datascript queries now log the offending datalog and
+  `queryUUID`, not just the error object.
+- 16 new tests across `aggregator.test.ts` (boolean + ident-suffix
+  matching) and `query-rewrite-compiled.test.ts`. Suite: 105 → 121.
+
+### Fixed
+
+- **User-defined property idents with hash suffixes** (`user.property/
+check-F44tqsqr`) were not matched by the aggregator, causing every
+  user-authored checkbox property to be silently skipped. Matcher now
+  accepts `/<name>` or `/<name>-<hash>` via an anchored regex that won't
+  over-match longer property names like `check-version`.
+- **Compiled-DSL query blocks crashed with `:in $ %` error.** When Logseq
+  stores a simple `(task …)` query as pre-compiled datalog in
+  `:block/title`, the rule call `(task ?b #{…})` requires a rules input
+  the plugin's `datascriptQuery` call doesn't supply. Pipeline now detects
+  this shape and re-routes through `dslToBlockQuery`, which produces
+  native datalog with no `%` dependency.
+- **`false` values were silently filtered** by the aggregator's truthy
+  guard (`if (!value) continue`), which would have caused unchecked items
+  to never enter the count. Guard tightened to `value === null`.
+- **Stale-slot `provideUI` warnings** — when async DB work straddled a
+  slot unmount, `logseq.provideUI` was called for slots Logseq had already
+  removed, producing `can not resolve selector target #slot__xxx` console
+  noise. All three `provideUI` call sites in `renderProgressBar` now go
+  through a `safeProvideUI` helper that re-checks `UI.checkSlotValid`
+  immediately before the call and drops the entry from `activeRenderers`
+  if the slot is gone.
+- **Tag reader skipped colon-prefixed `:block/tags` key.** In DB graphs,
+  `getBlockProperties` returns tags under `":block/tags"` (leading colon)
+  as a plain string array. The reader was checking `"tags"` and
+  `"block/tags"` only — every child returned `tags: []`, which made
+  `resolveProperty` fall back to the wrong mapped property, so every
+  Checklist/Tido child got silently skipped. Lookup chain extended.
+- **Aggregator fallback used only first property** — when no tag matched
+  (or tag resolution returned `[]`), `resolveProperty` returned only the
+  first mapped property, skipping every other tag's mapping. Replaced
+  with `resolvePropertyCandidates` that returns an ordered list and the
+  aggregator tries each in turn. Defensive: a Checklist child with empty
+  tags now still counts via its `check` property.
+
+### Changed
+
+- **`readPropertyValue` simplified** — two early-return fast paths
+  duplicated logic the suffix-regex loop already covers. Replaced with a
+  single anchored regex (`^:?(.+/)?<name>(?:-[A-Za-z0-9]+)?$`) that
+  matches all four observed key shapes: plain `check`,
+  `logseq.property/check`, `:logseq.property/check`, and
+  `:user.property/check-F44tqsqr`. As a side effect, exact-match lookups
+  are now case-insensitive (previously case-sensitive).
+- **`toBlockData` halves SDK round-trips per child** — the old
+  `getBlockTagNames` re-called `getBlock` _and_ `getBlockProperties` for
+  each block after `toBlockData` had already fetched both. Tag extraction
+  is now a pure `extractTagNames` helper that operates on the props
+  already in hand.
+- **`countQueryStatuses` switch consolidated** — the `datalog-map` and
+  `datalog-vec` branches differed only in how the inner vector was
+  extracted; merged into a single branch with one ternary.
+- Bundle size: 120.81 kB → 120.47 kB (−340 bytes). Test suite: 105 → 132
+  (15 new tests across aggregator, query-rewrite-compiled, and a new
+  scanner-children regression file).
+
+---
+
 ## [1.0.0] - 2026-05-01
 
 First marketplace-ready release. Plugin is feature-complete for the Logseq DB
@@ -14,6 +94,7 @@ graph: renderer macro, slash command, query-block auto-detect (DSL + custom
 datascript), real-time updates via `DB.onChanged`, and theme-aware colors.
 
 ### Added
+
 - **Unified query mode** (Phase 7) — query blocks can now use either the simple DSL (`(task "Todo" "Done")`) or a full custom datascript query as a `{:query [:find … :where …]}` map or bare `[:find … :where …]` vector. Renderer is auto-detected when placed in a query block's title; the explicit `query: <uuid>` param still works for cross-block references. Results are pulled as block entities and grouped/counted in the plugin via `aggregate()`, sharing the exact code path used by children and page modes.
   - New `src/query.ts` module: `classifyQuery`, `extractDatalogVector`, `parseDSL`, `dslToBlockQuery`, `entityToBlockData`, `enrichPull`, `QueryParseError`.
   - `scanner.ts` shrinks ~170 LOC; `buildStatusCountQuery` and `transformCountResults` removed.
@@ -46,14 +127,17 @@ datascript), real-time updates via `DB.onChanged`, and theme-aware colors.
 - README.md with usage, settings reference, and examples
 
 ### Changed
-- **SDK upgrade** — bumped `@logseq/libs` from `^0.2.8` → `^0.3.2`. No source changes required; the plugin's API surface (Editor, DB, App, UI, provide*, settings lifecycle) is unchanged between 0.2.x and 0.3.x. Host transport moved to MessageChannel (transparent with fallback); `onSettingsChanged` now emits clean `(next, prev)` snapshots.
+
+- **SDK upgrade** — bumped `@logseq/libs` from `^0.2.8` → `^0.3.2`. No source changes required; the plugin's API surface (Editor, DB, App, UI, provide\*, settings lifecycle) is unchanged between 0.2.x and 0.3.x. Host transport moved to MessageChannel (transparent with fallback); `onSettingsChanged` now emits clean `(next, prev)` snapshots.
 - Query-block raw-string resolution accepts any of `(`, `{`, `[` as a valid query opener (DSL, datalog map, or bare datalog vector).
 - Verbose info-level logs gated behind a `debug` setting (or `window.__LOGSEQ_PROGRESSBAR_DEBUG__ = true`); errors and warnings still surface.
 
 ### Removed
+
 - In-DB `[status, count]` aggregation datalog that only worked for DSL queries. Counting now happens in JS after pulling block entities — one grouping engine for every scan mode.
 
 ### Fixed
+
 - **Plugin handshake timeout** — migrated to `vite-plugin-logseq`, upgraded `@logseq/libs` to `^0.2.8`, changed dev script to `vite build --watch`
 - **ESM compatibility** — upgraded Vite to `^7.0.0`, Vitest to `^3.0.0`, separated `vitest.config.ts` from `vite.config.ts`
 - **Query DSL resolution** — in DB graphs, `logseq.property/query` is a reference entity, not a raw string. Resolved via datascript pull with inlined `#uuid` (SDK `datascriptQuery` doesn't pass `:in` parameters correctly).
@@ -61,5 +145,6 @@ datascript), real-time updates via `DB.onChanged`, and theme-aware colors.
 - **Wildcard `(pull ?b [*])` returning 0%** — wildcard pull leaves status refs as unresolved `{:db/id N}` stubs. `enrichPull` now injects `{:logseq.property/<tracked> [:block/title]}` hints automatically.
 
 ### Known limitations
+
 - Auto-detect mode (rendering bars on parent blocks without an explicit renderer) is not yet implemented.
 - ESLint + Prettier are not yet configured.

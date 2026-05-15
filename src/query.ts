@@ -159,6 +159,28 @@ export function dslToBlockQuery(
 }
 
 /**
+ * Convert a Logseq-compiled simple-query datalog (containing the rule call
+ * `(task ?var #{...statuses})` and `:in $ %`) back into a clean DSL string
+ * (`(task "Done" "Todo")`). Returns `null` if the datalog isn't this shape.
+ *
+ * Logseq stores some simple queries in `:block/title` as pre-compiled datalog
+ * that declares `:in $ %` (rules slot). Our raw `datascriptQuery` call passes
+ * only the DB, so the engine throws "Too few inputs passed, expected: [$ %]".
+ * Round-tripping back to DSL lets `dslToBlockQuery` emit native datalog with
+ * no rules dependency — simpler than implementing a Logseq rule expander.
+ */
+export function rewriteCompiledDsl(datalog: string): string | null {
+  const match = datalog.match(/\(\s*task\s+\?\w+\s+#\{([^}]+)\}\s*\)/);
+  if (!match) return null;
+  const statuses: string[] = [];
+  for (const m of match[1].matchAll(/"([^"]+)"/g)) {
+    statuses.push(m[1]);
+  }
+  if (statuses.length === 0) return null;
+  return `(task ${statuses.map((s) => `"${s}"`).join(" ")})`;
+}
+
+/**
  * Inject ref-resolution hints into a user-supplied datalog query's `(pull ?x [*])`
  * so block entities come back with `:logseq.property/<tracked>` and `:block/tags`
  * already resolved to their `:block/title` strings. Without this, wildcard pull

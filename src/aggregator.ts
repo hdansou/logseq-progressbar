@@ -25,7 +25,6 @@ export function aggregate(
   let completed = 0;
 
   const tagToProperty = config.propertyMappings;
-  const tagSet = new Set(config.tags.map((t) => t.toLowerCase()));
 
   // Collect all complete values across all properties
   const completeSet = new Set<string>();
@@ -36,21 +35,26 @@ export function aggregate(
   }
 
   for (const block of blocks) {
-    // Find the property to read for this block
-    const property = resolveProperty(block.tags, tagToProperty, tagSet);
-    if (!property) continue;
+    // Try each candidate property in turn. Tag-matched mappings come first;
+    // if no tag matches (or tag resolution failed), fall back to every
+    // mapped property so a checkbox block with empty tags still counts.
+    const candidates = resolvePropertyCandidates(block.tags, tagToProperty);
+    let value: string | boolean | null = null;
+    for (const prop of candidates) {
+      value = readPropertyValue(block.properties, prop);
+      if (value !== null) break;
+    }
+    if (value === null) continue;
 
-    // Read the property value
-    const value = readPropertyValue(block.properties, property);
-    if (!value) continue; // Skip blocks with no value
+    // Boolean (checkbox) values self-bucket and self-complete.
+    // Enum string values defer to the configured completeValues map.
+    const label = typeof value === "boolean" ? (value ? "Done" : "Todo") : value;
+    const isComplete =
+      typeof value === "boolean" ? value : completeSet.has(label.toLowerCase());
 
-    const label = String(value);
     counts[label] = (counts[label] || 0) + 1;
     total++;
-
-    if (completeSet.has(label.toLowerCase())) {
-      completed++;
-    }
+    if (isComplete) completed++;
   }
 
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -78,54 +82,61 @@ export function formatLabel(
 
 // --- Helpers ---
 
-function resolveProperty(
+/**
+ * Ordered list of properties to try for a block, in priority order:
+ *   1. Properties whose tag matches one of the block's tags.
+ *   2. (Fallback, when no tag matches OR tag resolution returned []) every
+ *      property in the mapping, so a checkbox block with empty tags still
+ *      counts.
+ */
+function resolvePropertyCandidates(
   blockTags: string[],
-  tagToProperty: Record<string, string>,
-  tagSet: Set<string>
-): string | null {
-  // Find first matching tag and return its mapped property
+  tagToProperty: Record<string, string>
+): string[] {
+  const matched: string[] = [];
   for (const tag of blockTags) {
     const key = Object.keys(tagToProperty).find(
       (k) => k.toLowerCase() === tag.toLowerCase()
     );
-    if (key) return tagToProperty[key];
+    if (key) matched.push(tagToProperty[key]);
   }
-
-  // If no tag matches but we're in inclusive mode, use the first property mapping
-  const firstProp = Object.values(tagToProperty)[0];
-  return firstProp ?? null;
+  return matched.length > 0 ? matched : Object.values(tagToProperty);
 }
 
+/**
+ * Find the property value across the four key shapes Logseq emits:
+ *   1. `check`                            — plain name
+ *   2. `:logseq.property/check`           — built-in, colon-prefixed
+ *   3. `logseq.property/check`            — built-in, unprefixed
+ *   4. `:user.property/check-F44tqsqr`    — user-defined with hash suffix
+ *
+ * One anchored regex covers all four. The leading `(.+/)?` makes the
+ * namespace prefix optional, so plain `"check"` matches too. Anchored
+ * boundary prevents looking up `check` from matching `check-version-XXX`.
+ */
 function readPropertyValue(
   properties: Record<string, unknown>,
   propertyName: string
-): string | null {
-  // Try exact match first
-  if (properties[propertyName] != null) {
-    return extractStringValue(properties[propertyName]);
-  }
-
-  // Try with logseq.property/ prefix (DB graph format)
-  const prefixed = `logseq.property/${propertyName}`;
-  if (properties[prefixed] != null) {
-    return extractStringValue(properties[prefixed]);
-  }
-
-  // Try case-insensitive match
-  const lowerName = propertyName.toLowerCase();
+): string | boolean | null {
+  const lower = propertyName.toLowerCase();
+  const re = new RegExp(`^:?(.+/)?${escapeRegex(lower)}(?:-[A-Za-z0-9]+)?$`);
   for (const [key, val] of Object.entries(properties)) {
-    if (key.toLowerCase() === lowerName || key.toLowerCase().endsWith(`/${lowerName}`)) {
-      if (val != null) return extractStringValue(val);
+    if (re.test(key.toLowerCase()) && val != null) {
+      return extractValue(val);
     }
   }
-
   return null;
 }
 
-function extractStringValue(val: unknown): string | null {
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractValue(val: unknown): string | boolean | null {
   if (val == null) return null;
+  if (typeof val === "boolean") return val;
   if (typeof val === "string") return val || null;
-  if (typeof val === "object" && val !== null) {
+  if (typeof val === "object") {
     // Reference property — may have name, title, or content
     const obj = val as Record<string, unknown>;
     return (

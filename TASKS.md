@@ -178,7 +178,7 @@
     - `onSettingsChanged` triggers `rerenderAll` (args-less callback)
     - `UI.checkSlotValid` still drops stale slots
 - [x] **6.7** ~~migrate hand-rolled DSL parsing in `scanner.ts` to `DB.customQuery`~~ — **superseded and closed.** Delivered equivalent capability in Phase 7 via `DB.datascriptQuery` + `aggregate()`. Avoids the host-side `custom_query` tuple-unwrap concern entirely.
-- [ ] **6.8** *(optional follow-up)* evaluate `Experiments.registerHostedRenderer` for a settings/summary panel
+- [ ] **6.8** _(optional follow-up)_ evaluate `Experiments.registerHostedRenderer` for a settings/summary panel
 
 ---
 
@@ -297,3 +297,116 @@ Audit run via `production-readiness` skill. Categories A + C + E applied
 **Follow-up later same day (E — marketplace metadata):**
 
 - Second pass surfaced four missing `package.json` fields (`private`, `repository`, `homepage`, `bugs`, `keywords`, `engines.node`). Applied as a single commit (`7721722`). Verify the GitHub URLs match the actual remote when one is configured.
+
+---
+
+## Phase 8: Checkbox-property tracking (TDD)
+
+> **Goal:** roll up Logseq `:checkbox` properties into the same progress bar
+> alongside enum statuses. Single tag-to-property line in settings; no graph
+> mutation, no new renderer, no new colors. KISS, DRY, YAGNI.
+>
+> **Architecture:** `aggregator.readPropertyValue` returns `string | boolean
+| null`. When boolean, `aggregate()` maps `true → Done` and `false → Todo`
+> and bypasses the `completeValues` lookup (boolean carries its own complete
+> semantics). One bucket set, one bar.
+>
+> **TDD discipline:** RED → GREEN → REFACTOR for each change.
+
+### 8.1 RED → GREEN: boolean values in the aggregator
+
+- [x] **8.1.1** RED: add tests to `src/__tests__/aggregator.test.ts`:
+  - `true` → Done bucket + completed.
+  - `false` → Todo bucket + not completed (verifies the `!value` filter bug).
+  - Mixed boolean + string children aggregated under one bar.
+  - `null`/`undefined` still excluded (no regression).
+- [x] **8.1.2** GREEN: `readPropertyValue` returns `string | boolean | null`;
+      `aggregate()` branches on `typeof value === "boolean"` to label and to
+      bypass `completeValues`.
+- [x] **8.1.3** REFACTOR: keep the boolean branch tight (≤4 lines) and
+      consolidate the `value == null` guard so `false` is not filtered.
+
+### 8.2 Default settings: `Checklist → check`
+
+- [x] **8.2.1** Update `DEFAULTS.propertyMappings` in `src/config.ts` to
+      `{ Task: "status", Checklist: "check" }`.
+- [x] **8.2.2** Update `SETTINGS_SCHEMA` defaults (`tagsInScope`,
+      `propertyMappings`) to match. No graph mutation, no new slash command,
+      no new renderer.
+
+### 8.3 Gates
+
+- [x] **8.3.1** `npm test` — all green (existing 105 + new checkbox cases).
+- [x] **8.3.2** `npm run typecheck` — clean.
+- [x] **8.3.3** `npm run build` — clean.
+
+### Non-goals (YAGNI, explicit)
+
+- ❌ No class/property creation in the user's graph. Users author their own
+  classes (the EDN shows they already do).
+- ❌ No schema lookup (`:logseq.property/type`). Boolean values are
+  self-identifying; saves a DB round-trip per property.
+- ❌ No new renderer (`/checklist-bar`) or new colors. Existing Done/Todo
+  segments absorb the buckets.
+- ❌ No `:build/class-extends` inheritance walk. Own properties only.
+- ❌ No new per-instance renderer params. `{{renderer :progress-bar}}`
+  already does the job once the default mapping is in place.
+
+---
+
+## Phase 9: Real-graph integration fixes (TDD)
+
+> **Goal:** unblock the checkbox feature against an actual Logseq graph.
+> First user-driven smoke test exposed two real-graph shapes the unit tests
+> didn't model: hash-suffixed user-property idents and pre-compiled simple
+> queries with `:in $ %`. Both fixed TDD-first.
+
+### 9.1 RED → GREEN: user-property ident with hash suffix
+
+- [x] **9.1.1** RED: aggregator tests for `user.property/check-F44tqsqr`
+      matching plain `check`, and for `user.property/check-version-AbCd` NOT
+      matching plain `check` (anchored boundary).
+- [x] **9.1.2** GREEN: `readPropertyValue` switched from
+      `endsWith("/" + name)` to anchored regex
+      `\/${name}(?:-[A-Za-z0-9]+)?$`.
+- [x] **9.1.3** REFACTOR: added a small `escapeRegex` helper.
+
+### 9.2 RED → GREEN: compiled-DSL query rewrite
+
+- [x] **9.2.1** RED: 6 tests for `rewriteCompiledDsl` covering the user's
+      exact failing query (`(task ?b #{"Done" …})`), variable-name variations,
+      whitespace tolerance, empty-set / non-task / plain-DSL → null paths.
+- [x] **9.2.2** GREEN: `rewriteCompiledDsl` in `src/query.ts` extracts
+      statuses from `(task ?var #{…})` and emits clean DSL `(task "Done" …)`.
+- [x] **9.2.3** Integration: `countQueryStatuses` runs the rewrite over
+      both `datalog-map` and `datalog-vec` inputs before falling through to
+      `enrichPull`. Extracted `buildDslDatalog` helper so both the `dsl` kind
+      and the rewrite path share one generator (DRY).
+
+### 9.3 Diagnostic
+
+- [x] **9.3.1** `[progress-bar] datascript query failed` log now includes
+      the offending `queryUUID` and raw `datalog` string, not just the error.
+
+### 9.4 Gates
+
+- [x] **9.4.1** `npm test` — 121/121.
+- [x] **9.4.2** `npm run typecheck` — clean.
+- [x] **9.4.3** `npm run build` — clean.
+
+### Non-goals (YAGNI)
+
+- ❌ No general Logseq-rule expander. Only `(task ?v #{…})` is detected —
+  the only rule the failing queries actually use. If a future shape
+  surfaces (e.g., `(page-tags …)`), add it then.
+- ❌ No fix for stale `#slot__xxx` selector warnings. Separate concern;
+  pre-existing; not blocking the checkbox feature.
+
+### Known follow-up (deferred)
+
+- Tido-tagged children: the inclusive-fallback rule means a Tido child IS
+  counted under the default `Checklist → check` mapping (the fallback
+  picks `check` as the first mapped property). If a user wants Tido
+  blocks excluded, they enable Strict Tag Filter in settings. If they
+  want Tido tracked explicitly, they add `"Tido": "check"` to mappings.
+  Documented behavior; no code change needed.

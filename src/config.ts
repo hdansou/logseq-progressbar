@@ -2,8 +2,8 @@ import type { ProgressBarConfig } from "./types";
 
 /** Default configuration — used when no settings or overrides are provided */
 export const DEFAULTS: ProgressBarConfig = {
-  tags: ["Task"],
-  propertyMappings: { Task: "status" },
+  tags: ["Task", "Checklist"],
+  propertyMappings: { Task: "status", Checklist: "check" },
   completeValues: { status: ["Done"] },
   depth: Infinity,
   strict: false,
@@ -24,17 +24,17 @@ export const SETTINGS_SCHEMA = [
   {
     key: "tagsInScope",
     type: "string" as const,
-    default: "Task",
+    default: "Task, Checklist",
     title: "Tags in Scope",
-    description: "Comma-separated tag names to track (e.g., `Task, Bug, Project`)",
+    description: "Comma-separated tag names to track (e.g., `Task, Bug, Checklist`)",
   },
   {
     key: "propertyMappings",
     type: "string" as const,
-    default: '{"Task": "status"}',
+    default: '{"Task": "status", "Checklist": "check"}',
     title: "Tag → Property Mappings (JSON)",
     description:
-      'Map each tag to the property used for progress. Example: `{"Task": "status", "Project": "state"}`',
+      'Map each tag to the property used for progress. Checkbox-typed properties self-bucket (`true` → Done, `false` → Todo). Example: `{"Task": "status", "Checklist": "check"}`',
     inputAs: "textarea" as const,
   },
   {

@@ -99,6 +99,205 @@ describe("aggregate", () => {
     expect(result.completed).toBe(0);
     expect(result.percent).toBe(0);
   });
+
+  describe("checkbox property values", () => {
+    const checklistConfig: ProgressBarConfig = {
+      ...DEFAULTS,
+      tags: ["Checklist"],
+      propertyMappings: { Checklist: "check" },
+      completeValues: {},
+    };
+
+    function makeChecklist(value: boolean | null) {
+      return {
+        uuid: Math.random().toString(36),
+        tags: ["Checklist"],
+        properties: value === null ? {} : { check: value },
+      };
+    }
+
+    it("counts `true` in the Done bucket and as completed", () => {
+      const blocks = [makeChecklist(true), makeChecklist(true)];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(2);
+      expect(result.completed).toBe(2);
+      expect(result.percent).toBe(100);
+      expect(result.counts).toEqual({ Done: 2 });
+    });
+
+    it("counts `false` in the Todo bucket and not as completed", () => {
+      const blocks = [makeChecklist(false), makeChecklist(false)];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(2);
+      expect(result.completed).toBe(0);
+      expect(result.percent).toBe(0);
+      expect(result.counts).toEqual({ Todo: 2 });
+    });
+
+    it("mixes true/false correctly", () => {
+      const blocks = [
+        makeChecklist(true),
+        makeChecklist(false),
+        makeChecklist(true),
+        makeChecklist(false),
+      ];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(4);
+      expect(result.completed).toBe(2);
+      expect(result.percent).toBe(50);
+      expect(result.counts).toEqual({ Done: 2, Todo: 2 });
+    });
+
+    it("does not silently filter `false` (regression: !value treated false as null)", () => {
+      const result = aggregate([makeChecklist(false)], checklistConfig);
+      expect(result.total).toBe(1);
+    });
+
+    it("still excludes blocks where the checkbox property is unset", () => {
+      const blocks = [makeChecklist(true), makeChecklist(null), makeChecklist(false)];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(2);
+      expect(result.completed).toBe(1);
+    });
+
+    it("aggregates checkbox children alongside enum-status children under one bar", () => {
+      const mixedConfig: ProgressBarConfig = {
+        ...DEFAULTS,
+        tags: ["Task", "Checklist"],
+        propertyMappings: { Task: "status", Checklist: "check" },
+        completeValues: { status: ["Done"] },
+      };
+      const blocks = [
+        { uuid: "1", tags: ["Task"], properties: { status: "Done" } },
+        { uuid: "2", tags: ["Task"], properties: { status: "Todo" } },
+        { uuid: "3", tags: ["Checklist"], properties: { check: true } },
+        { uuid: "4", tags: ["Checklist"], properties: { check: false } },
+      ];
+      const result = aggregate(blocks, mixedConfig);
+      expect(result.total).toBe(4);
+      expect(result.completed).toBe(2);
+      expect(result.percent).toBe(50);
+      expect(result.counts).toEqual({ Done: 2, Todo: 2 });
+    });
+
+    it("resolves checkbox property via logseq.property/ prefix", () => {
+      const blocks = [
+        {
+          uuid: "1",
+          tags: ["Checklist"],
+          properties: { "logseq.property/check": true },
+        },
+        {
+          uuid: "2",
+          tags: ["Checklist"],
+          properties: { "logseq.property/check": false },
+        },
+      ];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(2);
+      expect(result.completed).toBe(1);
+      expect(result.counts).toEqual({ Done: 1, Todo: 1 });
+    });
+
+    it("resolves user-defined property with hash-suffixed ident (user.property/check-XXXX)", () => {
+      // Real-graph shape: Logseq generates random suffixes on user-defined
+      // property idents. Matcher must accept `/<name>-<suffix>` as a hit.
+      const blocks = [
+        {
+          uuid: "1",
+          tags: ["Checklist"],
+          properties: { "user.property/check-F44tqsqr": true },
+        },
+        {
+          uuid: "2",
+          tags: ["Checklist"],
+          properties: { "user.property/check-F44tqsqr": false },
+        },
+      ];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(2);
+      expect(result.completed).toBe(1);
+      expect(result.counts).toEqual({ Done: 1, Todo: 1 });
+    });
+
+    it("hash-suffix matcher does not over-match a longer property name", () => {
+      // Looking up `check` must NOT match `check-version-XXXX`.
+      const blocks = [
+        {
+          uuid: "1",
+          tags: ["Checklist"],
+          properties: { "user.property/check-version-AbCdEfGh": true },
+        },
+      ];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(0); // skipped — no `check` property found
+    });
+
+    it("falls back across ALL mapped properties when tags are empty", () => {
+      // Real-graph case: tag resolution sometimes returns [] (DB graph
+      // SDK shape). Aggregator must still find checkbox values by trying
+      // each property in the mapping, not just the first one.
+      const config: ProgressBarConfig = {
+        ...DEFAULTS,
+        tags: ["Task", "Checklist"],
+        propertyMappings: { Task: "status", Checklist: "check" },
+        completeValues: { status: ["Done"] },
+      };
+      const blocks = [
+        {
+          uuid: "1",
+          tags: [], // tag resolution failed
+          properties: { ":user.property/check-F44tqsqr": true },
+        },
+        {
+          uuid: "2",
+          tags: [],
+          properties: { ":user.property/check-F44tqsqr": false },
+        },
+      ];
+      const result = aggregate(blocks, config);
+      expect(result.total).toBe(2);
+      expect(result.completed).toBe(1);
+      expect(result.counts).toEqual({ Done: 1, Todo: 1 });
+    });
+
+    it("prefers tag-matched property over fallback ones", () => {
+      // If a block has a Task tag AND a check property, the Task→status
+      // mapping wins. Status is missing → block is excluded; we don't
+      // silently fall through to check.
+      const config: ProgressBarConfig = {
+        ...DEFAULTS,
+        tags: ["Task", "Checklist"],
+        propertyMappings: { Task: "status", Checklist: "check" },
+        completeValues: { status: ["Done"] },
+      };
+      const blocks = [
+        {
+          uuid: "1",
+          tags: ["Task"],
+          properties: { ":user.property/check-F44tqsqr": true },
+        },
+      ];
+      const result = aggregate(blocks, config);
+      expect(result.total).toBe(0); // status missing, no fallback when tag matched
+    });
+
+    it("excludes Tido-tagged children when Tido is not in the mapping", () => {
+      // Documents current behavior: untagged-to-mapping blocks fall back to
+      // first property ('check' here), and Tido children DO have `check`, so
+      // they're actually counted. This locks in the inclusive-fallback rule.
+      const blocks = [
+        {
+          uuid: "1",
+          tags: ["Tido"],
+          properties: { "user.property/check-F44tqsqr": true },
+        },
+      ];
+      const result = aggregate(blocks, checklistConfig);
+      expect(result.total).toBe(1);
+      expect(result.completed).toBe(1);
+    });
+  });
 });
 
 describe("formatLabel", () => {

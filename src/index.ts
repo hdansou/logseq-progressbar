@@ -59,6 +59,17 @@ async function main() {
     // to appear in each slot and look doubled.
     const instanceId = `pb-${slot}`;
 
+    // Guarded provideUI — skips the call if the slot has been unmounted
+    // during our async work. Without this, Logseq logs a "can not resolve
+    // selector target" warning per stale slot.
+    const safeProvideUI = async (template: string) => {
+      if (await logseq.UI.checkSlotValid(slot)) {
+        logseq.provideUI({ key: instanceId, slot, template });
+      } else {
+        activeRenderers.delete(`${slot}-${blockUuid}`);
+      }
+    };
+
     try {
       const globalConfig = readGlobalConfig();
       const overrides = parseRendererArgs(args);
@@ -84,19 +95,9 @@ async function main() {
 
       // Handle empty state
       if (stats.total === 0) {
-        if (config.showOnEmpty) {
-          logseq.provideUI({
-            key: instanceId,
-            slot,
-            template: renderEmpty("No matching items", instanceId),
-          });
-        } else {
-          logseq.provideUI({
-            key: instanceId,
-            slot,
-            template: "",
-          });
-        }
+        await safeProvideUI(
+          config.showOnEmpty ? renderEmpty("No matching items", instanceId) : ""
+        );
         return;
       }
 
@@ -109,16 +110,13 @@ async function main() {
         colorOverrides
       );
 
-      const html = renderBar(segments, stats, config, instanceId);
-      logseq.provideUI({ key: instanceId, slot, template: html });
+      await safeProvideUI(renderBar(segments, stats, config, instanceId));
     } catch (err) {
       console.error("Progress Bar render error:", err);
       const message = err instanceof Error ? err.message : String(err);
-      logseq.provideUI({
-        key: instanceId,
-        slot,
-        template: `<div class="pb-error">${escapeHtml(message)}</div>`,
-      });
+      await safeProvideUI(
+        `<div class="pb-error">${escapeHtml(message)}</div>`
+      );
     }
   }
 

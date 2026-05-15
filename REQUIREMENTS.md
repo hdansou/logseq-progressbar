@@ -101,6 +101,27 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 - In plugin settings, users map: `property → [complete values]`.
 - Per-instance override via renderer args: `complete: Done|Canceled`.
 
+### 4.4 Checkbox-Typed Properties
+
+- A tagged block may declare a property of `:logseq.property/type :checkbox`
+  (boolean). Logseq renders the native clickable checkbox at `:block-left`;
+  the plugin does **not** render checkbox UI.
+- The plugin treats boolean property values as a degenerate two-value enum:
+  - `true` → counted in the **Done** bucket (also counted as _completed_).
+  - `false` → counted in the **Todo** bucket (not completed).
+- The `completeValues` map is bypassed for boolean values — `true` always
+  counts as complete, `false` always does not. This keeps a checkbox tag
+  configuration to one line (`Checklist → check`) with no separate
+  complete-value list.
+- Boolean and enum children are aggregated together under a single bar.
+  `true`/`Done` share the same bucket; `false`/`Todo` share the same bucket.
+- **Default built-in mapping**: `Checklist → check`. The plugin ships this
+  default in settings; it does **not** create the class or property in the
+  user's graph. Users author the class themselves (any class name works —
+  the default just provides a turnkey path).
+- Property-type discrimination is **value-based** at read time: a JS boolean
+  value triggers the checkbox path. No schema lookup is required.
+
 ---
 
 ## 5. Visual Design
@@ -158,7 +179,7 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 - Hovering over the progress bar shows a tooltip with the full status breakdown.
 - Example tooltip:
-  
+
   ```txt
   Done: 7
   Doing: 2
@@ -188,18 +209,18 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 ### 8.1 Global Plugin Settings
 
-| Setting            | Type    | Default                | Description                                     |
-| ------------------ | ------- | ---------------------- | ----------------------------------------------- |
-| `tagsInScope`      | string  | `"Task"`               | Comma-separated list of tags to track           |
-| `propertyMappings` | object  | `{"Task": "status"}`   | Tag-to-property mapping                         |
-| `completeValues`   | object  | `{"status": ["Done"]}` | Property-to-complete-values mapping             |
-| `defaultDepth`     | string  | `"all"`                | Default scan depth (`"1"`, `"2"`, ..., `"all"`) |
-| `strictTagFilter`  | boolean | `false`                | Only count blocks with matching tags            |
-| `displayFormat`    | enum    | `"percent"`            | `"percent"`, `"fraction"`, `"both"`             |
-| `barWidth`         | enum    | `"full"`               | `"full"`, `"compact"`, or pixel value           |
-| `autoDetect`       | boolean | `true`                 | Enable auto-detect mode                         |
-| `showOnEmpty`      | boolean | `false`                | Show bar when zero matching blocks              |
-| `colorOverrides`   | object  | `{}`                   | Per-status color overrides                      |
+| Setting            | Type    | Default                                    | Description                                                           |
+| ------------------ | ------- | ------------------------------------------ | --------------------------------------------------------------------- |
+| `tagsInScope`      | string  | `"Task, Checklist"`                        | Comma-separated list of tags to track                                 |
+| `propertyMappings` | object  | `{"Task": "status", "Checklist": "check"}` | Tag-to-property mapping (checkbox properties bypass `completeValues`) |
+| `completeValues`   | object  | `{"status": ["Done"]}`                     | Property-to-complete-values mapping (string properties only)          |
+| `defaultDepth`     | string  | `"all"`                                    | Default scan depth (`"1"`, `"2"`, ..., `"all"`)                       |
+| `strictTagFilter`  | boolean | `false`                                    | Only count blocks with matching tags                                  |
+| `displayFormat`    | enum    | `"percent"`                                | `"percent"`, `"fraction"`, `"both"`                                   |
+| `barWidth`         | enum    | `"full"`                                   | `"full"`, `"compact"`, or pixel value                                 |
+| `autoDetect`       | boolean | `true`                                     | Enable auto-detect mode                                               |
+| `showOnEmpty`      | boolean | `false`                                    | Show bar when zero matching blocks                                    |
+| `colorOverrides`   | object  | `{}`                                       | Per-status color overrides                                            |
 
 ### 8.2 Per-Instance Renderer Overrides
 
