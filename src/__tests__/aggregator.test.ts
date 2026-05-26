@@ -282,6 +282,85 @@ describe("aggregate", () => {
       expect(result.total).toBe(0); // status missing, no fallback when tag matched
     });
 
+    describe("inherited-default path (tag class-property)", () => {
+      // Real-graph regression: a #Tido-tagged block whose Tido class declares
+      // `check` as a class-property shows ☐ in the UI but doesn't have the
+      // value stored. The plugin must default these to false / Todo so the
+      // bar matches what the user sees.
+      const inheritedConfig: ProgressBarConfig = {
+        ...DEFAULTS,
+        tags: ["Task", "Checklist"],
+        propertyMappings: { Task: "status", Checklist: "check" },
+        completeValues: { status: ["Done"] },
+        resolvedIdents: { check: [":user.property/check-pgUd_nnQ"] },
+        propertyTypes: { check: "checkbox" },
+        tagClassProps: { tido: [":user.property/check-pgUd_nnQ"] },
+      };
+
+      it("counts a tagged-but-unset checkbox block as Todo", () => {
+        const blocks = [
+          { uuid: "1", tags: ["Tido"], properties: {} },
+          {
+            uuid: "2",
+            tags: ["Tido"],
+            properties: { ":user.property/check-pgUd_nnQ": true },
+          },
+          {
+            uuid: "3",
+            tags: [],
+            properties: { ":user.property/check-pgUd_nnQ": false },
+          },
+        ];
+        const result = aggregate(blocks, inheritedConfig);
+        expect(result.total).toBe(3);
+        expect(result.completed).toBe(1);
+        expect(result.percent).toBe(33);
+        expect(result.counts).toEqual({ Done: 1, Todo: 2 });
+      });
+
+      it("does not default-false untagged blocks (no tag => no inheritance)", () => {
+        const blocks = [{ uuid: "1", tags: [], properties: {} }];
+        const result = aggregate(blocks, inheritedConfig);
+        expect(result.total).toBe(0);
+      });
+
+      it("does not default-false when the property is NOT checkbox-typed", () => {
+        const config: ProgressBarConfig = {
+          ...inheritedConfig,
+          propertyTypes: { check: "default" },
+        };
+        const blocks = [{ uuid: "1", tags: ["Tido"], properties: {} }];
+        const result = aggregate(blocks, config);
+        expect(result.total).toBe(0);
+      });
+
+      it("does not default-false when the tag is unknown to the class-prop map", () => {
+        const blocks = [{ uuid: "1", tags: ["UnknownTag"], properties: {} }];
+        const result = aggregate(blocks, inheritedConfig);
+        expect(result.total).toBe(0);
+      });
+
+      it("inheritance does not override an explicit value", () => {
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Tido"],
+            properties: { ":user.property/check-pgUd_nnQ": true },
+          },
+        ];
+        const result = aggregate(blocks, inheritedConfig);
+        expect(result.total).toBe(1);
+        expect(result.completed).toBe(1);
+      });
+
+      it("tag matching is case-insensitive", () => {
+        const blocks = [{ uuid: "1", tags: ["TIDO"], properties: {} }];
+        const result = aggregate(blocks, inheritedConfig);
+        expect(result.total).toBe(1);
+        expect(result.counts).toEqual({ Todo: 1 });
+      });
+    });
+
     describe("resolved-idents path (identCache)", () => {
       it("matches the exact ident from cache, including underscores", () => {
         // Real-graph regression: the random suffix can contain `_`

@@ -47,6 +47,20 @@ export function aggregate(
         config.resolvedIdents?.[prop] ?? []
       );
       if (value !== null) break;
+      // Inherited-default path: an unset checkbox property is rendered ☐ in
+      // Logseq's UI when the block's tag class declares it. Treat as `false`
+      // so the user's progress matches what they see on screen.
+      if (
+        config.propertyTypes?.[prop] === "checkbox" &&
+        blockHasInheritedClassProperty(
+          block.tags,
+          config.resolvedIdents?.[prop] ?? [],
+          config.tagClassProps ?? {}
+        )
+      ) {
+        value = false;
+        break;
+      }
     }
     if (value === null) continue;
 
@@ -152,6 +166,31 @@ function readPropertyValue(
 
 function stripLeadingColon(s: string): string {
   return s.startsWith(":") ? s.slice(1) : s;
+}
+
+/**
+ * True when any of the block's tags is a class that declares one of the
+ * candidate property's idents. Caller has already determined the property
+ * isn't set directly on the block.
+ *
+ * Lookup is lowercased on tag titles and stripped-of-leading-colon on
+ * idents so it matches the shapes config snapshots from the cache.
+ */
+function blockHasInheritedClassProperty(
+  blockTags: string[],
+  candidateIdents: string[],
+  tagClassProps: Record<string, string[]>
+): boolean {
+  if (blockTags.length === 0 || candidateIdents.length === 0) return false;
+  const wantedIdents = new Set(candidateIdents.map(stripLeadingColon));
+  for (const tag of blockTags) {
+    const declared = tagClassProps[tag.toLowerCase()];
+    if (!declared) continue;
+    for (const ident of declared) {
+      if (wantedIdents.has(stripLeadingColon(ident))) return true;
+    }
+  }
+  return false;
 }
 
 function escapeRegex(s: string): string {

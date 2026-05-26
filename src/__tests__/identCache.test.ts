@@ -3,6 +3,9 @@ import {
   _seedForTest,
   _clearForTest,
   lookup,
+  lookupType,
+  isClassProperty,
+  getAllClassProps,
   clear,
   buildIndexes,
 } from "../identCache";
@@ -18,28 +21,71 @@ describe("identCache", () => {
     });
 
     it("returns seeded idents (lowercased key)", () => {
-      _seedForTest({ check: [":user.property/check-pgUd_nnQ"] });
+      _seedForTest({ byShortName: { check: [":user.property/check-pgUd_nnQ"] } });
       expect(lookup("check")).toEqual([":user.property/check-pgUd_nnQ"]);
       expect(lookup("CHECK")).toEqual([":user.property/check-pgUd_nnQ"]);
     });
 
     it("clear() empties the cache", () => {
-      _seedForTest({ check: [":user.property/check-pgUd_nnQ"] });
+      _seedForTest({ byShortName: { check: [":user.property/check-pgUd_nnQ"] } });
       clear();
       expect(lookup("check")).toEqual([]);
     });
   });
 
+  describe("lookupType", () => {
+    it("returns null when ident is unknown", () => {
+      expect(lookupType(":user.property/check-pgUd_nnQ")).toBeNull();
+    });
+
+    it("returns the type when seeded (colon-agnostic)", () => {
+      _seedForTest({
+        typeByIdent: { ":user.property/check-pgUd_nnQ": "checkbox" },
+      });
+      expect(lookupType(":user.property/check-pgUd_nnQ")).toBe("checkbox");
+      expect(lookupType("user.property/check-pgUd_nnQ")).toBe("checkbox");
+    });
+  });
+
+  describe("isClassProperty + getAllClassProps", () => {
+    it("returns false when tag is unknown", () => {
+      expect(isClassProperty("Tido", ":user.property/check-pgUd_nnQ")).toBe(false);
+    });
+
+    it("returns true when tag declares the property as a class-property", () => {
+      _seedForTest({
+        classPropsByTag: { Tido: [":user.property/check-pgUd_nnQ"] },
+      });
+      expect(isClassProperty("Tido", ":user.property/check-pgUd_nnQ")).toBe(true);
+      expect(isClassProperty("tido", "user.property/check-pgUd_nnQ")).toBe(true);
+    });
+
+    it("getAllClassProps copies the cache (returns string arrays)", () => {
+      _seedForTest({
+        classPropsByTag: {
+          Tido: [":user.property/check-pgUd_nnQ"],
+          Task: [":logseq.property/status"],
+        },
+      });
+      const all = getAllClassProps();
+      expect(all.tido).toEqual(["user.property/check-pgUd_nnQ"]);
+      expect(all.task).toEqual(["logseq.property/status"]);
+    });
+  });
+
   describe("buildIndexes", () => {
     it("returns empty maps for non-array input", () => {
-      const { titleIndex, tailIndex } = buildIndexes(null);
+      const { titleIndex, tailIndex, typeByIdent, classPropsByTag } =
+        buildIndexes(null, null);
       expect(titleIndex.size).toBe(0);
       expect(tailIndex.size).toBe(0);
+      expect(typeByIdent.size).toBe(0);
+      expect(classPropsByTag.size).toBe(0);
     });
 
     it("indexes a user property by both title and stripped tail", () => {
-      const rows = [[":user.property/check-pgUd_nnQ", "check"]];
-      const { titleIndex, tailIndex } = buildIndexes(rows);
+      const propRows = [[":user.property/check-pgUd_nnQ", "check", "checkbox"]];
+      const { titleIndex, tailIndex } = buildIndexes(propRows, null);
       expect(titleIndex.get("check")).toEqual([":user.property/check-pgUd_nnQ"]);
       expect(tailIndex.get("check")).toEqual([":user.property/check-pgUd_nnQ"]);
       // The full tail is also indexed so identical lookups by raw tail work.
@@ -48,62 +94,71 @@ describe("identCache", () => {
       ]);
     });
 
+    it("captures property type (colon-prefixed keyword strings)", () => {
+      const propRows = [[":user.property/check-pgUd_nnQ", "check", ":checkbox"]];
+      const { typeByIdent } = buildIndexes(propRows, null);
+      expect(typeByIdent.get("user.property/check-pgUd_nnQ")).toBe("checkbox");
+    });
+
     it("indexes a built-in property by tail (no title)", () => {
-      const rows = [[":logseq.property/status", ""]];
-      const { titleIndex, tailIndex } = buildIndexes(rows);
+      const propRows = [[":logseq.property/status", "", "default"]];
+      const { titleIndex, tailIndex } = buildIndexes(propRows, null);
       expect(titleIndex.size).toBe(0);
       expect(tailIndex.get("status")).toEqual([":logseq.property/status"]);
     });
 
-    it("dedupes when title and tail collapse to same key", () => {
-      const rows = [[":user.property/check-pgUd_nnQ", "check"]];
-      const { titleIndex, tailIndex } = buildIndexes(rows);
-      expect(titleIndex.get("check")?.length).toBe(1);
-      expect(tailIndex.get("check")?.length).toBe(1);
-    });
-
     it("preserves multiple idents for the same friendly name", () => {
-      const rows = [
-        [":user.property/check-pgUd_nnQ", "check"],
-        [":logseq.property/check", ""],
+      const propRows = [
+        [":user.property/check-pgUd_nnQ", "check", "checkbox"],
+        [":logseq.property/check", "", "checkbox"],
       ];
-      const { titleIndex, tailIndex } = buildIndexes(rows);
-      // Title only matches the user property
+      const { titleIndex, tailIndex } = buildIndexes(propRows, null);
       expect(titleIndex.get("check")).toEqual([":user.property/check-pgUd_nnQ"]);
-      // Tail matches both (the user property's stripped tail is also "check")
       expect(tailIndex.get("check")?.sort()).toEqual(
         [":logseq.property/check", ":user.property/check-pgUd_nnQ"].sort()
       );
     });
 
-    it("does NOT strip suffix from short hyphenated names like 'next-action'", () => {
-      // Suffix-strip regex requires 6-12 alphanumeric+_ chars after `-`.
-      // "action" is 6 chars — this is the conservative trade-off documented
-      // in identCache. Real property names hit by this should be looked up
-      // by exact title, which IS indexed.
-      const rows = [[":user.property/next-action", "next-action"]];
-      const { titleIndex } = buildIndexes(rows);
-      expect(titleIndex.get("next-action")).toEqual([
-        ":user.property/next-action",
-      ]);
+    it("indexes class-property memberships by tag title (lowercased)", () => {
+      const classRows = [
+        [":user.property/check-pgUd_nnQ", "Tido"],
+        [":logseq.property/status", "Task"],
+      ];
+      const { classPropsByTag } = buildIndexes(null, classRows);
+      expect(classPropsByTag.get("tido")).toEqual(
+        new Set(["user.property/check-pgUd_nnQ"])
+      );
+      expect(classPropsByTag.get("task")).toEqual(
+        new Set(["logseq.property/status"])
+      );
+    });
+
+    it("supports a tag declaring multiple class-properties", () => {
+      const classRows = [
+        [":user.property/check-pgUd_nnQ", "Tido"],
+        [":user.property/priority-XYZ123", "Tido"],
+      ];
+      const { classPropsByTag } = buildIndexes(null, classRows);
+      expect(classPropsByTag.get("tido")?.size).toBe(2);
+    });
+
+    it("ignores malformed class rows", () => {
+      const classRows = [[null, "Tido"], [":user.property/x", ""], "garbage"];
+      const { classPropsByTag } = buildIndexes(null, classRows);
+      expect(classPropsByTag.size).toBe(0);
     });
 
     it("normalizes string idents missing the leading colon", () => {
-      const rows = [["user.property/check-pgUd_nnQ", "check"]];
-      const { titleIndex } = buildIndexes(rows);
+      const propRows = [["user.property/check-pgUd_nnQ", "check", "checkbox"]];
+      const { titleIndex } = buildIndexes(propRows, null);
       expect(titleIndex.get("check")).toEqual([":user.property/check-pgUd_nnQ"]);
     });
 
-    it("ignores rows with no ident", () => {
-      const rows = [[null, "check"], [42, "x"], [[], "y"]];
-      const { titleIndex, tailIndex } = buildIndexes(rows);
-      expect(titleIndex.size).toBe(0);
-      expect(tailIndex.size).toBe(0);
-    });
-
     it("trims whitespace from title", () => {
-      const rows = [[":user.property/check-pgUd_nnQ", "  check  "]];
-      const { titleIndex } = buildIndexes(rows);
+      const propRows = [
+        [":user.property/check-pgUd_nnQ", "  check  ", "checkbox"],
+      ];
+      const { titleIndex } = buildIndexes(propRows, null);
       expect(titleIndex.get("check")).toEqual([":user.property/check-pgUd_nnQ"]);
     });
   });

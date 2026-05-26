@@ -13,6 +13,12 @@ export interface ProgressBarConfig {
   // map to it in the current graph (e.g. "check" -> [":user.property/check-pgUd_nnQ"]).
   // Populated at plugin init from identCache; undefined falls back to regex.
   resolvedIdents?: Record<string, string[]>;
+  // Property type per short name (e.g. "check" -> "checkbox"). Used by the
+  // aggregator to default unset checkbox class-properties to false.
+  propertyTypes?: Record<string, string>;
+  // Tag title (lowercased) -> set of :db/idents declared as class-properties.
+  // Lets the aggregator know which tags imply which inherited-default props.
+  tagClassProps?: Record<string, string[]>;
 }
 
 /** Aggregated status counts from scanned blocks */

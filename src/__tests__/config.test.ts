@@ -68,13 +68,23 @@ describe("resolveConfig", () => {
     beforeEach(() => _clearForTest());
 
     it("_property override pulls fresh idents from the cache", () => {
-      _seedForTest({ state: [":user.property/state-AbCdEfGh"] });
+      _seedForTest({ byShortName: { state: [":user.property/state-AbCdEfGh"] } });
       const global = { ...DEFAULTS, tags: ["Project"] };
       const result = resolveConfig(global, { _property: "state" });
       expect(result.propertyMappings).toEqual({ Project: "state" });
       expect(result.resolvedIdents?.state).toEqual([
         ":user.property/state-AbCdEfGh",
       ]);
+    });
+
+    it("_property override carries through property type", () => {
+      _seedForTest({
+        byShortName: { check: [":user.property/check-pgUd_nnQ"] },
+        typeByIdent: { ":user.property/check-pgUd_nnQ": "checkbox" },
+      });
+      const global = { ...DEFAULTS, tags: ["Project"] };
+      const result = resolveConfig(global, { _property: "check" });
+      expect(result.propertyTypes?.check).toBe("checkbox");
     });
 
     it("_property override is a no-op for resolvedIdents when cache misses", () => {

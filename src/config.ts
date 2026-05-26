@@ -1,5 +1,9 @@
 import type { ProgressBarConfig } from "./types";
-import { lookup as lookupIdents } from "./identCache";
+import {
+  lookup as lookupIdents,
+  lookupType as lookupIdentType,
+  getAllClassProps,
+} from "./identCache";
 
 /** Default configuration — used when no settings or overrides are provided */
 export const DEFAULTS: ProgressBarConfig = {
@@ -142,14 +146,9 @@ export function readGlobalConfig(): ProgressBarConfig {
   const depthStr = String(s.defaultDepth ?? "all").toLowerCase();
   const depth = depthStr === "all" ? Infinity : parseInt(depthStr, 10) || Infinity;
 
-  // Snapshot the ident cache for every property in scope. Empty arrays are
-  // dropped so aggregator's `length === 0` check trips and the regex
-  // fallback engages.
-  const resolvedIdents: Record<string, string[]> = {};
-  for (const shortName of Object.values(propertyMappings)) {
-    const idents = lookupIdents(shortName);
-    if (idents.length > 0) resolvedIdents[shortName] = idents;
-  }
+  const { resolvedIdents, propertyTypes, tagClassProps } = snapshotIdentCache(
+    Object.values(propertyMappings)
+  );
 
   return {
     tags,
@@ -164,6 +163,49 @@ export function readGlobalConfig(): ProgressBarConfig {
     showOnEmpty:
       (s.showOnEmpty as boolean | undefined) ?? DEFAULTS.showOnEmpty,
     resolvedIdents,
+    propertyTypes,
+    tagClassProps,
+  };
+}
+
+/**
+ * Snapshot ident-cache state for the supplied property names.
+ *
+ *   - `resolvedIdents`: short name → :db/ident[] for the in-scope properties.
+ *   - `propertyTypes` : short name → property type (e.g. "checkbox").
+ *   - `tagClassProps` : every tag known to the cache → its class-property
+ *                       ident list (NOT filtered by `tagsInScope` — blocks
+ *                       can carry out-of-scope tags that still imply an
+ *                       inherited default we want to count).
+ */
+function snapshotIdentCache(
+  propertyNames: string[]
+): {
+  resolvedIdents: Record<string, string[]>;
+  propertyTypes: Record<string, string>;
+  tagClassProps: Record<string, string[]>;
+} {
+  const resolvedIdents: Record<string, string[]> = {};
+  const propertyTypes: Record<string, string> = {};
+  for (const shortName of new Set(propertyNames)) {
+    const idents = lookupIdents(shortName);
+    if (idents.length === 0) continue;
+    resolvedIdents[shortName] = idents;
+    // First resolved ident wins for type — all idents sharing a friendly
+    // name in the same graph should agree on type anyway.
+    for (const ident of idents) {
+      const t = lookupIdentType(ident);
+      if (t) {
+        propertyTypes[shortName] = t;
+        break;
+      }
+    }
+  }
+
+  return {
+    resolvedIdents,
+    propertyTypes,
+    tagClassProps: getAllClassProps(),
   };
 }
 
@@ -196,6 +238,10 @@ export function resolveConfig(
     const idents = lookupIdents(prop);
     if (idents.length > 0) {
       config.resolvedIdents = { ...(config.resolvedIdents ?? {}), [prop]: idents };
+      const t = lookupIdentType(idents[0]);
+      if (t) {
+        config.propertyTypes = { ...(config.propertyTypes ?? {}), [prop]: t };
+      }
     }
   }
 
