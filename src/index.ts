@@ -12,6 +12,7 @@ import { debug } from "./debug";
 import type { StatusCounts } from "./types";
 import { buildSegments, parseColorOverrides } from "./colors";
 import { renderBar, renderEmpty, PLUGIN_CSS } from "./renderer";
+import * as identCache from "./identCache";
 
 async function main() {
   debug("plugin loaded");
@@ -24,6 +25,22 @@ async function main() {
 
   // --- CSS ---
   logseq.provideStyle(PLUGIN_CSS);
+
+  // --- Property ident cache ---
+  // Resolve user-property idents (e.g. `:user.property/check-pgUd_nnQ`)
+  // from configured short names. One DB query per refresh; aggregator
+  // falls back to regex if the cache is empty.
+  async function refreshIdentCache() {
+    const cfg = readGlobalConfig();
+    const names = Array.from(new Set(Object.values(cfg.propertyMappings)));
+    try {
+      await identCache.refresh(names);
+      debug("identCache refreshed for:", names);
+    } catch (e) {
+      console.warn("Progress Bar: identCache refresh failed", e);
+    }
+  }
+  await refreshIdentCache();
 
   // --- Theme Detection ---
   try {
@@ -173,8 +190,18 @@ async function main() {
 
   // --- Settings Change ---
   logseq.onSettingsChanged(async () => {
+    await refreshIdentCache();
     await rerenderAll();
   });
+
+  // --- Graph Switch ---
+  // Different graph means different :db/ident suffixes — clear and re-resolve.
+  const offGraph = logseq.App.onCurrentGraphChanged(async () => {
+    identCache.clear();
+    await refreshIdentCache();
+    await rerenderAll();
+  });
+  if (typeof offGraph === "function") offHooks.push(offGraph);
 
   // --- Cleanup ---
   logseq.beforeunload(async () => {

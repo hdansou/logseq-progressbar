@@ -9,6 +9,10 @@ export interface ProgressBarConfig {
   barWidth: string; // "full" | "compact" | "200px" etc.
   showOnEmpty: boolean;
   queryUUID?: string; // if tracking a query's results
+  // Short property name -> list of fully-qualified :db/ident strings that
+  // map to it in the current graph (e.g. "check" -> [":user.property/check-pgUd_nnQ"]).
+  // Populated at plugin init from identCache; undefined falls back to regex.
+  resolvedIdents?: Record<string, string[]>;
 }
 
 /** Aggregated status counts from scanned blocks */

@@ -1,4 +1,5 @@
 import type { ProgressBarConfig } from "./types";
+import { lookup as lookupIdents } from "./identCache";
 
 /** Default configuration — used when no settings or overrides are provided */
 export const DEFAULTS: ProgressBarConfig = {
@@ -141,6 +142,15 @@ export function readGlobalConfig(): ProgressBarConfig {
   const depthStr = String(s.defaultDepth ?? "all").toLowerCase();
   const depth = depthStr === "all" ? Infinity : parseInt(depthStr, 10) || Infinity;
 
+  // Snapshot the ident cache for every property in scope. Empty arrays are
+  // dropped so aggregator's `length === 0` check trips and the regex
+  // fallback engages.
+  const resolvedIdents: Record<string, string[]> = {};
+  for (const shortName of Object.values(propertyMappings)) {
+    const idents = lookupIdents(shortName);
+    if (idents.length > 0) resolvedIdents[shortName] = idents;
+  }
+
   return {
     tags,
     propertyMappings,
@@ -153,6 +163,7 @@ export function readGlobalConfig(): ProgressBarConfig {
     barWidth: (s.barWidth as string | undefined) ?? DEFAULTS.barWidth,
     showOnEmpty:
       (s.showOnEmpty as boolean | undefined) ?? DEFAULTS.showOnEmpty,
+    resolvedIdents,
   };
 }
 
@@ -180,6 +191,11 @@ export function resolveConfig(
     config.propertyMappings = {};
     for (const tag of config.tags) {
       config.propertyMappings[tag] = prop;
+    }
+    // Re-snapshot the ident cache for the newly-introduced property name.
+    const idents = lookupIdents(prop);
+    if (idents.length > 0) {
+      config.resolvedIdents = { ...(config.resolvedIdents ?? {}), [prop]: idents };
     }
   }
 

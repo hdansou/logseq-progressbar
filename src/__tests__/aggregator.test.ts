@@ -282,6 +282,125 @@ describe("aggregate", () => {
       expect(result.total).toBe(0); // status missing, no fallback when tag matched
     });
 
+    describe("resolved-idents path (identCache)", () => {
+      it("matches the exact ident from cache, including underscores", () => {
+        // Real-graph regression: the random suffix can contain `_`
+        // (e.g. `pgUd_nnQ`). The legacy regex used [A-Za-z0-9]+ and missed
+        // these. The cache path matches by exact ident so no character
+        // class is in play.
+        const config: ProgressBarConfig = {
+          ...checklistConfig,
+          resolvedIdents: { check: [":user.property/check-pgUd_nnQ"] },
+        };
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Checklist"],
+            properties: { ":user.property/check-pgUd_nnQ": true },
+          },
+          {
+            uuid: "2",
+            tags: ["Checklist"],
+            properties: { ":user.property/check-pgUd_nnQ": false },
+          },
+        ];
+        const result = aggregate(blocks, config);
+        expect(result.total).toBe(2);
+        expect(result.completed).toBe(1);
+        expect(result.counts).toEqual({ Done: 1, Todo: 1 });
+      });
+
+      it("matches when block key omits the leading colon", () => {
+        const config: ProgressBarConfig = {
+          ...checklistConfig,
+          resolvedIdents: { check: [":user.property/check-pgUd_nnQ"] },
+        };
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Checklist"],
+            properties: { "user.property/check-pgUd_nnQ": true },
+          },
+        ];
+        const result = aggregate(blocks, config);
+        expect(result.total).toBe(1);
+        expect(result.completed).toBe(1);
+      });
+
+      it("does NOT over-match when cache resolves to a specific ident", () => {
+        // Cache says check → :user.property/check-pgUd_nnQ. A block carrying
+        // a *different* property tail (e.g. `check-version-AbCdEfGh`) must
+        // be skipped — not silently caught by a regex.
+        const config: ProgressBarConfig = {
+          ...checklistConfig,
+          resolvedIdents: { check: [":user.property/check-pgUd_nnQ"] },
+        };
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Checklist"],
+            properties: { ":user.property/check-version-AbCdEfGh": true },
+          },
+        ];
+        const result = aggregate(blocks, config);
+        expect(result.total).toBe(0);
+      });
+
+      it("tries all idents when cache holds multiple (built-in + user)", () => {
+        const config: ProgressBarConfig = {
+          ...checklistConfig,
+          resolvedIdents: {
+            check: [":logseq.property/check", ":user.property/check-pgUd_nnQ"],
+          },
+        };
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Checklist"],
+            properties: { ":logseq.property/check": true },
+          },
+          {
+            uuid: "2",
+            tags: ["Checklist"],
+            properties: { ":user.property/check-pgUd_nnQ": false },
+          },
+        ];
+        const result = aggregate(blocks, config);
+        expect(result.total).toBe(2);
+        expect(result.completed).toBe(1);
+      });
+
+      it("falls back to regex when resolvedIdents is undefined", () => {
+        // No cache (pre-init / cache-miss). Regex path still picks up
+        // user.property/check-F44tqsqr like before.
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Checklist"],
+            properties: { "user.property/check-F44tqsqr": true },
+          },
+        ];
+        const result = aggregate(blocks, checklistConfig);
+        expect(result.total).toBe(1);
+        expect(result.completed).toBe(1);
+      });
+
+      it("regex fallback now accepts underscores in suffix", () => {
+        // The bug surfaced by `Check-pgUd_nnQ`. Even without the cache, the
+        // widened regex must match underscore-bearing suffixes.
+        const blocks = [
+          {
+            uuid: "1",
+            tags: ["Checklist"],
+            properties: { ":user.property/check-pgUd_nnQ": true },
+          },
+        ];
+        const result = aggregate(blocks, checklistConfig);
+        expect(result.total).toBe(1);
+        expect(result.completed).toBe(1);
+      });
+    });
+
     it("excludes Tido-tagged children when Tido is not in the mapping", () => {
       // Documents current behavior: untagged-to-mapping blocks fall back to
       // first property ('check' here), and Tido children DO have `check`, so

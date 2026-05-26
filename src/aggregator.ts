@@ -41,7 +41,11 @@ export function aggregate(
     const candidates = resolvePropertyCandidates(block.tags, tagToProperty);
     let value: string | boolean | null = null;
     for (const prop of candidates) {
-      value = readPropertyValue(block.properties, prop);
+      value = readPropertyValue(
+        block.properties,
+        prop,
+        config.resolvedIdents?.[prop] ?? []
+      );
       if (value !== null) break;
     }
     if (value === null) continue;
@@ -104,28 +108,50 @@ function resolvePropertyCandidates(
 }
 
 /**
- * Find the property value across the four key shapes Logseq emits:
- *   1. `check`                            — plain name
- *   2. `:logseq.property/check`           — built-in, colon-prefixed
- *   3. `logseq.property/check`            — built-in, unprefixed
- *   4. `:user.property/check-F44tqsqr`    — user-defined with hash suffix
+ * Find the property value for a short name. Two paths:
  *
- * One anchored regex covers all four. The leading `(.+/)?` makes the
- * namespace prefix optional, so plain `"check"` matches too. Anchored
- * boundary prevents looking up `check` from matching `check-version-XXX`.
+ *   1. Resolved-idents path (preferred): if the caller has a list of
+ *      fully-qualified `:db/ident` strings (from identCache), match
+ *      block-property keys exactly. No suffix guessing, no false positives.
+ *
+ *   2. Regex fallback: covers the four shapes Logseq emits when the cache
+ *      hasn't been populated yet (pre-init, graph-load race, brand-new
+ *      property created after refresh):
+ *        a. `check`                            — plain name
+ *        b. `:logseq.property/check`           — built-in, colon-prefixed
+ *        c. `logseq.property/check`            — built-in, unprefixed
+ *        d. `:user.property/check-pgUd_nnQ`    — user-defined with random suffix
+ *      The suffix class includes `_` to match Logseq's actual squuid alphabet.
+ *      Anchored boundary prevents `check` from matching `check-version-XXX`.
  */
 function readPropertyValue(
   properties: Record<string, unknown>,
-  propertyName: string
+  propertyName: string,
+  resolvedIdents: string[]
 ): string | boolean | null {
+  if (resolvedIdents.length > 0) {
+    const want = new Set(resolvedIdents.map(stripLeadingColon));
+    for (const [key, val] of Object.entries(properties)) {
+      if (val == null) continue;
+      if (want.has(stripLeadingColon(key))) return extractValue(val);
+    }
+    // Cache hit but no match on this block — don't fall through to regex,
+    // it could over-match a similarly-named property.
+    return null;
+  }
+
   const lower = propertyName.toLowerCase();
-  const re = new RegExp(`^:?(.+/)?${escapeRegex(lower)}(?:-[A-Za-z0-9]+)?$`);
+  const re = new RegExp(`^:?(.+/)?${escapeRegex(lower)}(?:-[A-Za-z0-9_]+)?$`);
   for (const [key, val] of Object.entries(properties)) {
     if (re.test(key.toLowerCase()) && val != null) {
       return extractValue(val);
     }
   }
   return null;
+}
+
+function stripLeadingColon(s: string): string {
+  return s.startsWith(":") ? s.slice(1) : s;
 }
 
 function escapeRegex(s: string): string {

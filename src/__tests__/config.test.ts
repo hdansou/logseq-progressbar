@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { resolveConfig, DEFAULTS } from "../config";
+import { _seedForTest, _clearForTest } from "../identCache";
 
 describe("resolveConfig", () => {
   it("returns global config when no overrides", () => {
@@ -61,5 +62,26 @@ describe("resolveConfig", () => {
     expect(result.depth).toBe(3);
     expect(result.tags).toEqual(DEFAULTS.tags);
     expect(result.displayFormat).toBe(DEFAULTS.displayFormat);
+  });
+
+  describe("resolvedIdents wiring", () => {
+    beforeEach(() => _clearForTest());
+
+    it("_property override pulls fresh idents from the cache", () => {
+      _seedForTest({ state: [":user.property/state-AbCdEfGh"] });
+      const global = { ...DEFAULTS, tags: ["Project"] };
+      const result = resolveConfig(global, { _property: "state" });
+      expect(result.propertyMappings).toEqual({ Project: "state" });
+      expect(result.resolvedIdents?.state).toEqual([
+        ":user.property/state-AbCdEfGh",
+      ]);
+    });
+
+    it("_property override is a no-op for resolvedIdents when cache misses", () => {
+      const global = { ...DEFAULTS, tags: ["Project"] };
+      const result = resolveConfig(global, { _property: "state" });
+      // Field absent or empty — both signal aggregator to use regex.
+      expect(result.resolvedIdents?.state ?? []).toEqual([]);
+    });
   });
 });
