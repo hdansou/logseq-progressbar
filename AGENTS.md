@@ -11,16 +11,35 @@ colon** in DB graphs. This is not in the `@logseq/libs` types and bit us
 repeatedly during Phase 9 fixes. The shapes you will see:
 
 - `":block/tags"` → plain string array, e.g. `["Tido"]`. Not entities.
-- `":user.property/<name>-<8charhash>"` → user-defined properties get a
-  random Logseq-generated suffix at class creation. The display name and
-  ident are different.
+- `":user.property/<name>-<suffix>"` → user-defined properties get a
+  random Logseq-generated suffix at class creation. The suffix is a
+  6-12 char base64url-ish string and CAN contain `_` and `-` (e.g.
+  `check-pgUd_nnQ`). The display name and ident are different.
 - `":logseq.property/<name>"` → built-in properties.
 
-`readPropertyValue` in `src/aggregator.ts` and `extractTagNames` in
-`src/scanner.ts` already handle all four shapes (plain, colon-prefixed,
-namespace-prefixed, hash-suffixed). For new property access, route through
-them or reuse the regex `^:?(.+/)?<name>(?:-[A-Za-z0-9]+)?$` exactly —
-the anchored boundary stops `check` from matching `check-version-XXXXXXXX`.
+Property lookup goes through two paths, in order:
+
+1. **`identCache` (preferred)** — `src/identCache.ts` queries every
+   property's `:db/ident`, title, and type from the live graph at plugin
+   init / settings change / graph switch, and exposes
+   `lookup(shortName) → ident[]`, `lookupType(ident)`, and
+   `isClassProperty(tagTitle, ident)`. `readPropertyValue` does exact
+   ident matching against block-property keys via this cache.
+2. **Regex fallback** — used only when the cache misses (pre-init,
+   brand-new property created after refresh). Pattern is
+   `^:?(.+/)?<name>(?:-[A-Za-z0-9_]+)?$`. The `_` in the char class is
+   load-bearing — Logseq's squuid alphabet includes it. The anchored
+   boundary stops `check` from matching `check-version-XXXXXXXX`.
+
+Class-property inheritance: when a block is tagged with a class that
+declares a `:checkbox` property AND the property isn't stored directly
+on the block, Logseq renders ☐ in the UI but `getBlockProperties` returns
+nothing for that key. The aggregator handles this by default-falsing
+unset checkbox class-properties (`blockHasInheritedClassProperty` in
+`src/aggregator.ts`), driven by the `tagClassProps` field of
+`ProgressBarConfig` (populated from
+`:logseq.property.class/properties` via identCache). When debugging a
+"why isn't this block counted?" report, check this path first.
 
 `(pull ?b [*])` returns property refs as `{:db/id N}` stubs. User-supplied
 datalog must go through `enrichPull` first so refs come back as resolved

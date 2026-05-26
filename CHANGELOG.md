@@ -7,6 +7,56 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+Property-ident resolution moves from a single regex to a DB-backed cache.
+Logseq's user-property idents have graph-specific suffixes (e.g.
+`:user.property/check-pgUd_nnQ`) and the old regex missed any suffix
+containing `_` — the bar would silently render 0 % even though the user
+could see the checkbox. The new cache resolves friendly names → idents at
+plugin init, settings change, and graph switch. The regex stays as a
+fallback for cache misses, with its character class widened to match
+Logseq's actual squuid alphabet.
+
+A second real-graph case landed in the same pass: a `#Checklist`-tagged
+block whose class declares a checkbox property is rendered ☐ by Logseq's
+UI but doesn't have the value stored on the block until the user ticks
+it. The plugin now treats these inherited defaults as `false` (Todo) so
+the bar matches what the user sees.
+
+### Added
+
+- **Property-ident cache** (`src/identCache.ts`) — one Datascript query
+  resolves every property's `:db/ident`, title, and type per graph.
+  Aggregator does exact-match lookup against the cache; falls back to
+  the regex only when the cache misses. Eliminates the suffix-alphabet
+  guessing game and collision risk.
+- **Class-property inheritance for unset checkboxes** — when a block is
+  tagged with a class that declares a `:checkbox` property as a
+  class-property and the value isn't directly stored, the aggregator
+  defaults to `false` (Todo bucket). Without this, untouched checkbox
+  blocks were silently excluded from progress counts.
+- 33 new unit tests covering the cache (18) and the inherited-default
+  + resolved-idents paths in the aggregator (15). Suite: 132 → 165.
+
+### Changed
+
+- Widened the regex-fallback suffix character class from `[A-Za-z0-9]+`
+  to `[A-Za-z0-9_]+` so `_`-bearing squuid suffixes
+  (e.g. `check-pgUd_nnQ`) match. AGENTS.md updated to match.
+- `ProgressBarConfig` gains optional `resolvedIdents`, `propertyTypes`,
+  and `tagClassProps` fields, snapshotted from the cache at config-read
+  time. Pure types — no behaviour change for non-DB callers.
+
+### Fixed
+
+- User-property idents with underscore in the random suffix
+  (`:user.property/<name>-pgUd_nnQ`) are now matched. Previously the
+  regex `[A-Za-z0-9]+` excluded `_`, so any block carrying such a key
+  rendered as "no value" and was silently dropped from the bar.
+
+---
+
 ## [1.1.0] - 2026-05-15
 
 Checkbox-property tracking lands as the headline feature: tagged blocks

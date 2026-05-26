@@ -247,6 +247,11 @@ Result: 2/4 complete (50%). `true` lands in the **Done** bucket, `false` in
 property — author them yourself (or rename in settings to point at any class
 you've already built, e.g. `{"MyChecklist": "done"}`).
 
+A tagged block whose class declares a `:checkbox` property counts as
+**Todo** even if you've never clicked the checkbox — Logseq renders ☐ by
+default and the progress bar treats that as "not done yet" to match. Tick
+it and the bar updates without you having to re-tag the block.
+
 Checkbox and enum-status children can live under the same parent — they roll
 up into one bar.
 
