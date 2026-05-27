@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [Unreleased]
+## [1.2.0] - 2026-05-26
 
 Property-ident resolution moves from a single regex to a DB-backed cache.
 Logseq's user-property idents have graph-specific suffixes (e.g.
