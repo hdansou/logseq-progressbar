@@ -19,13 +19,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [x] `TASKS.md` pointer to this file; `CHANGELOG.md` `[Unreleased]` opened
 
 ### Phase 1 — toolchain & dependencies
-- [ ] npm → pnpm (`packageManager`, lockfile, `pnpm.overrides`), `engines.node >=24`, `.nvmrc`
-- [ ] `@logseq/libs ^0.3.4`, `minSDKVersion 0.3.4`, `web`/`effect` flags inside `logseq{}`
-- [ ] `src/__sdk_guard__.ts` (`typeof logseq.Commands`, 0.3.4-only)
-- [ ] vite ^7.3.7, vitest ^5 + coverage-v8, @types/node ^24; drop `vite-plugin-logseq`; add `vite-logseq-safe-plugin.ts`; dev port 8296; CORS → localhost:3001
-- [ ] `pnpm audit` = 0 (overrides verified by resolved version)
-- [ ] `vitest.config.ts` merged into `vite.config.ts`; `manifest.test.ts` updated
-- [ ] CI + publish on pnpm / Node 24, test step with coverage gate
+- [x] npm → pnpm (`packageManager`, lockfile, overrides in `pnpm-workspace.yaml` — pnpm 12 ignores `package.json#pnpm`), `engines.node >=24`, `.nvmrc`
+- [x] `@logseq/libs ^0.3.4`, `minSDKVersion 0.3.4`, `web`/`effect` flags inside `logseq{}`
+- [x] `src/__sdk_guard__.ts` (`typeof logseq.Commands`, 0.3.4-only)
+- [x] vite ^7.3.7, vitest ^5 + coverage-v8, @types/node ^24; drop `vite-plugin-logseq`; add `vite-logseq-safe-plugin.ts`; dev port 8296; CORS → localhost:3001
+- [x] `pnpm audit` = 0 (overrides verified by resolved version)
+- [x] `vitest.config.ts` merged into `vite.config.ts`; `manifest.test.ts` updated
+- [x] CI + publish on pnpm / Node 24, test step (coverage gate thresholds land with Phase 2 once the split lifts coverage past 80 %)
 
 ### Phase 2 — thin adapter + injected SDK port (TDD)
 - [ ] `src/sdk.ts` — `SdkPort`

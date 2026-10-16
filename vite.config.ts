@@ -1,10 +1,30 @@
-import { defineConfig } from "vite";
-import logseqDevPlugin from "vite-plugin-logseq";
+import { defineConfig } from "vitest/config";
+import logseqSafeDevPlugin from "./vite-logseq-safe-plugin";
+
+const LOGSEQ_ORIGINS = ["http://localhost:3001", "http://127.0.0.1:3001"];
 
 export default defineConfig({
-  plugins: [logseqDevPlugin()],
+  plugins: [logseqSafeDevPlugin()],
   build: {
-    target: "esnext",
+    outDir: "dist",
+    emptyOutDir: true,
+    target: "es2020",
     minify: "esbuild",
+    sourcemap: false,
+  },
+  server: {
+    port: 8296,
+    strictPort: true,
+    cors: { origin: LOGSEQ_ORIGINS },
+  },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      // The adapter talks to the live SDK and is covered by the live matrices.
+      exclude: ["src/index.ts", "src/__sdk_guard__.ts", "src/**/*.test.ts"],
+    },
   },
 });

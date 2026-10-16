@@ -22,39 +22,39 @@
     "productivity"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "logseq": {
     "id": "logseq-progressbar",
     "title": "Progress Bar",
+    "description": "Visualize task completion as segmented progress bars in Logseq DB graphs",
     "icon": "./icon.svg",
     "main": "dist/index.html",
+    "minSDKVersion": "0.3.4",
+    "web": true,
+    "effect": false,
     "supportsDB": true,
-    "supportsDBOnly": true,
-    "minSDKVersion": "0.3.2"
+    "supportsDBOnly": true
   },
   "scripts": {
-    "dev": "vite build --watch",
-    "dev:serve": "vite",
+    "dev": "vite",
     "build": "vite build",
-    "test": "vitest run",
+    "watch": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "e2e": "scripts/e2e/progress-matrix.sh",
+    "e2e:desktop": "scripts/e2e/desktop-matrix.sh"
   },
   "dependencies": {
-    "@logseq/libs": "^0.3.3"
+    "@logseq/libs": "^0.3.4"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
-    "typescript": "^5.0.0",
-    "vite": "^7.3.2",
-    "vite-plugin-logseq": "^1.1.2",
-    "vitest": "^3.0.0"
+    "@types/node": "^24.19.2",
+    "@vitest/coverage-v8": "^5.0.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.7",
+    "vitest": "^5.0.5"
   },
-  "overrides": {
-    "dompurify": "^3.4.2",
-    "lodash-es": "^4.18.1",
-    "picomatch": "^4.0.4",
-    "postcss": "^8.5.13"
-  }
+  "packageManager": "pnpm@12.9.1"
 }

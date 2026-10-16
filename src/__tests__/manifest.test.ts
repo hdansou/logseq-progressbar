@@ -4,46 +4,51 @@ import { resolve } from "node:path";
 
 const root = resolve(__dirname, "../..");
 
-function readJson(path: string): any {
+function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));
 }
 
+const semver = (v: string) => v.split(".").map(Number) as [number, number, number];
+
 describe("plugin manifest", () => {
   const pkg = readJson("package.json");
+  const manifest = pkg.logseq;
 
-  describe("@logseq/libs dependency", () => {
-    it("declares a range that admits 0.3.2", () => {
-      const range = pkg.dependencies?.["@logseq/libs"];
-      expect(range, "package.json#dependencies['@logseq/libs'] missing").toBeTruthy();
-      // npm caret on 0.3.x only admits <0.4.0; a range that starts with ^0.3
-      // or ~0.3.2 / 0.3.2 all satisfy "admits 0.3.2 but not newer major".
-      expect(range).toMatch(/^(\^|~)?0\.3(\.\d+)?$/);
-    });
+  it("declares an @logseq/libs range on the 0.3.x (`next`) line", () => {
+    expect(pkg.dependencies?.["@logseq/libs"]).toMatch(/^(\^|~)?0\.3(\.\d+)?$/);
+  });
 
-    it("resolves installed SDK to a 0.3.x patch ≥ minSDKVersion", () => {
-      const installed = readJson("node_modules/@logseq/libs/package.json");
-      const min = pkg.logseq?.minSDKVersion ?? "0.3.2";
-      const [iMaj, iMin, iPatch] = installed.version.split(".").map(Number);
-      const [mMaj, mMin, mPatch] = min.split(".").map(Number);
-      expect(iMaj).toBe(mMaj);
-      expect(iMin).toBe(mMin);
-      expect(iPatch).toBeGreaterThanOrEqual(mPatch);
+  it("installs an SDK at or above minSDKVersion on the same minor", () => {
+    const installed = readJson("node_modules/@logseq/libs/package.json").version;
+    const [iMaj, iMin, iPatch] = semver(installed);
+    const [mMaj, mMin, mPatch] = semver(manifest.minSDKVersion);
+    expect([iMaj, iMin]).toEqual([mMaj, mMin]);
+    expect(iPatch).toBeGreaterThanOrEqual(mPatch);
+  });
+
+  it("pins the SDK floor at 0.3.4 (matches src/__sdk_guard__.ts)", () => {
+    expect(manifest.minSDKVersion).toBe("0.3.4");
+  });
+
+  it("keeps every host flag inside logseq{} — the host ignores top-level flags", () => {
+    expect(manifest).toMatchObject({ web: true, effect: false, supportsDB: true, supportsDBOnly: true });
+    for (const flag of ["web", "effect", "supportsDB", "supportsDBOnly", "minSDKVersion"]) {
+      expect(pkg, `top-level ${flag}`).not.toHaveProperty(flag);
+    }
+  });
+
+  it("names id, title, icon and main", () => {
+    expect(manifest).toMatchObject({
+      id: "logseq-progressbar",
+      title: expect.any(String),
+      icon: "./icon.svg",
+      main: "dist/index.html",
     });
   });
 
-  describe("logseq block (DB graph signalling)", () => {
-    const ls = pkg.logseq ?? {};
-
-    it("declares supportsDB = true", () => {
-      expect(ls.supportsDB).toBe(true);
-    });
-
-    it("declares supportsDBOnly = true", () => {
-      expect(ls.supportsDBOnly).toBe(true);
-    });
-
-    it("declares minSDKVersion = 0.3.2", () => {
-      expect(ls.minSDKVersion).toBe("0.3.2");
-    });
+  it("requires Node 24 (engines, .nvmrc) and pnpm", () => {
+    expect(pkg.engines?.node).toBe(">=24");
+    expect(readFileSync(resolve(root, ".nvmrc"), "utf8").trim()).toBe("24");
+    expect(pkg.packageManager).toMatch(/^pnpm@/);
   });
 });

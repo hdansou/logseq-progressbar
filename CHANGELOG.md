@@ -11,7 +11,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `src/__sdk_guard__.ts` — compile-time SDK-floor guard: typecheck fails
+  if the installed `@logseq/libs` is older than `minSDKVersion` (0.3.4).
+
 ### Changed
+
+- Toolchain: npm → pnpm (`packageManager`, `pnpm-lock.yaml`,
+  `pnpm-workspace.yaml` overrides), Node 24 (`engines`, `.nvmrc`, CI),
+  vite 7.3.7, vitest 5 with v8 coverage, `@types/node` 24.
+- `@logseq/libs` ^0.3.3 → ^0.3.4; `minSDKVersion` 0.3.4; `web: true` and
+  `effect: false` declared inside `package.json#logseq` next to the DB flags.
+- Dev server: `vite-plugin-logseq` replaced by the in-repo
+  `vite-logseq-safe-plugin.ts` so CORS can be limited to the Logseq origins
+  (`localhost:3001`) instead of `*`; pinned port 8296 (`pnpm dev`).
+- `pnpm audit` → 0 advisories (was 10 under npm, 2 critical): overrides for
+  the `dompurify` / `lodash-es` versions `@logseq/libs` pins; the rest cleared
+  by the vite/vitest bumps.
 
 ### Fixed
 
