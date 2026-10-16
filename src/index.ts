@@ -63,11 +63,16 @@ async function rerenderAll(): Promise<void> {
   for (const entry of slots.entries()) await render(entry);
 }
 
-/** Coalesce bursts of DB / settings / theme events into one re-render pass. */
+/**
+ * Coalesce bursts of DB / settings / theme events into one pass: refresh
+ * the ident cache (a class or property created after plugin load must be
+ * known before the next render — see AGENTS.md on inherited class
+ * properties), then re-render every live slot.
+ */
 function scheduleRerender(delay: number): void {
   clearTimeout(rerenderTimer);
   rerenderTimer = setTimeout(() => {
-    if (slots.size > 0) void rerenderAll();
+    if (slots.size > 0) void refreshIdentCache().then(rerenderAll);
   }, delay);
 }
 
@@ -108,11 +113,11 @@ async function main(): Promise<void> {
     logseq.DB.onChanged(() => scheduleRerender(300)),
     logseq.onSettingsChanged(() => {
       setDebug(rawSettings().debug === true);
-      void refreshIdentCache().then(() => scheduleRerender(100));
+      scheduleRerender(100);
     }),
     logseq.App.onCurrentGraphChanged(() => {
       identCache.clear();
-      void refreshIdentCache().then(() => scheduleRerender(100));
+      scheduleRerender(100);
     })
   );
 
