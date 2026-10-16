@@ -93,7 +93,7 @@ and `{id}` refs.
 - [ ] 9.6 Matrix + e2e fixtures for each (unit `src/matrix.test.ts`, live `seed.browser.js`)
 
 ### Phase 8 — release (owner's go-ahead only)
-- [ ] 1.3.0: bump, date changelog, tag, push, confirm workflows + zip
+- [x] 1.3.0 released 2026-10-16: `chore(release): 1.3.0` (0909b78), tag `v1.3.0`, CI and Build-and-Release green, `logseq-progressbar.zip` on the GitHub release carries version 1.3.0, minSDKVersion 0.3.4, CSP in dist
 
 ### Findings log
 - F11 (live) Setting `logseq.property/status` auto-tags the block with #Task — "untagged" fixtures must use a non-class property.
@@ -117,3 +117,4 @@ and `{id}` refs.
 - 2026-10-15: Phase 7 docs landed. Query-mode assessment (owner's mid-pass ask) recorded as proposed Phase 9.
 - 2026-10-15: Phase 5 web matrix green (`pnpm e2e`): 48 × 11, 0 writes, no loop, real-time, theme, other-page. Found and fixed F11–F13. Desktop runner written, waiting on the unpacked install (Phase 6).
 - 2026-10-16: Phase 6 desktop matrix green (`pnpm e2e:desktop 9345`), same numbers as the web run; `~/.logseq/preferences.json` and the settings file unchanged by the run. Remaining: Phase 8 release on go-ahead; Phase 9 decision.
+- 2026-10-16: 1.3.0 released on the owner's go-ahead. Open: Phase 9 query-mode completeness (next minor).
