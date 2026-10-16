@@ -11,6 +11,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Content-Security-Policy meta in `index.html`: the plugin iframe can only
+  load its own bundle; no remote scripts, objects, forms or base URLs.
 - `src/__sdk_guard__.ts` — compile-time SDK-floor guard: typecheck fails
   if the installed `@logseq/libs` is older than `minSDKVersion` (0.3.4).
 

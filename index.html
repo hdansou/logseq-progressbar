@@ -3,10 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The plugin iframe never loads remote code. 'unsafe-inline' styles are
+      needed for Vite's injected CSS; ws:/http://localhost:* keep dev-server
+      HMR working. The bar itself is rendered by the host via provideUI, so
+      nothing in this document ever receives graph content.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://localhost:* http://localhost:*; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
     <title>Progress Bar</title>
+    <script type="module" src="/src/index.ts"></script>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/index.ts"></script>
   </body>
 </html>
