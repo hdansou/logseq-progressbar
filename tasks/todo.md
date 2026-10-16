@@ -46,7 +46,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [x] depth / JSON / enum settings coercion
 - [x] `renderEmpty` ignores width; `.pb-full-width` dead rule
 - [x] out-of-order renders (generation counter)
-- [~] `autoDetect` setting removed (schema done; README / REQUIREMENTS in Phase 7)
+- [x] `autoDetect` setting removed (schema, README, REQUIREMENTS §1.1/§8.1)
 - [x] Tabler glyph check — not applicable: `grep -rn tabler src/` is empty; the plugin renders no icon glyphs
 
 ### Phase 5 — live run, web app (`pnpm e2e`)
@@ -60,7 +60,37 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [ ] matrix green; instance stopped; throwaway graph removed
 
 ### Phase 7 — docs
-- [ ] README (pnpm, port, privacy = no graph writes, testing); REQUIREMENTS (§1.1, §8.1, §10, §11, §13); CLAUDE.md; AGENTS.md; `docs/query-progress-bar.md`; TESTING.md; CHANGELOG
+- [x] README (pnpm, port, privacy = no graph writes, testing); REQUIREMENTS (§1.1, §5.4, §8.1, §10, §11, §12); CLAUDE.md; AGENTS.md; `docs/query-progress-bar.md`; TESTING.md; CHANGELOG
+
+### Phase 9 (proposed) — query-mode completeness
+
+Live assessment 2026-10-15 (page "PB Query Probe" in the web demo graph;
+"Logseq" = the host's own Live query count, "bar" = what the plugin rendered):
+
+| Query | Logseq | Bar | Verdict |
+|---|---|---|---|
+| `(and (task "Done") (tags [[PBQ]]))` | 2 | Done: 2 | ✓ |
+| `(or (task "Doing") (tags [[Project]]))` | 4 | nothing | ✗ `or` compiled as AND → 0 results, silent |
+| `(and (task …) (between -7d today))` | — | 15 (all tasks) | ✗ relative dates ignored, filter dropped silently |
+| `(tags [[Checklist]])` | 4 | nothing | ✗ query mode tracks only the first mapped `:logseq.property/*`; user/checkbox properties never read |
+| `(and (task …) (not (tags [[PBQ]])))` | 10 | 4 | ✗ `not` ignored → **inverted** result, silent |
+| `(priority "High")` / `(page-tags [[Project]])` / `(task)` | — | 17 (all) | ✗ unknown clauses dropped silently |
+| `(property :logseq.property/status "Done")` | 9 | Done: 10 | ✓ (Logseq's count collapses a nested result; document) |
+| `{:query … :in $ ?s … :inputs ["Done"]}` | 9 | nothing | ✗ `:inputs` unsupported (documented non-goal) — but `datascript_query(q, …inputs)` works live |
+| `[… :in $ % :where (tags ?b #{"PBQ"})]` | 0 | nothing | ✗ only `(task ?b #{…})` is rewritten; every other compiled rule fails — but `custom_query` runs any `:in $ %` datalog live (host supplies the rules) |
+
+Host facts verified live (2026-10-15 web build 2026-09-18): `logseq.api.q(dsl)` is
+broken for DSL with page refs ("reading 'slice'") and returns 0 for `(task)`, so the
+plugin's own DSL→datalog stays; `datascript_query` resolves `:in` inputs when passed as
+extra args; `custom_query` executes rule-bearing datalog and returns blocks with `uuid`
+and `{id}` refs.
+
+- [ ] 9.1 Compiled datalog (`:in $ %`): route through `DB.customQuery`, pull statuses by uuid; delete `rewriteCompiledDsl`
+- [ ] 9.2 `:inputs`: parse the vector, pass as `datascriptQuery` args
+- [ ] 9.3 Query mode reads every mapped property via `resolvedIdents` (checkbox / user properties) and keeps all property keys in `entityToBlockData`; one aggregation engine
+- [ ] 9.4 Real DSL parser (s-expressions → tree) with structural `and` / `or` / `not`; `between` relative dates via inputs; `priority`, `page-tags`, `page`, `tags` bare names
+- [ ] 9.5 Unknown clause → `.pb-error "unsupported clause (x)"` instead of a silently wrong bar
+- [ ] 9.6 Matrix + e2e fixtures for each (unit `src/matrix.test.ts`, live `seed.browser.js`)
 
 ### Phase 8 — release (owner's go-ahead only)
 - [ ] 1.3.0: bump, date changelog, tag, push, confirm workflows + zip
@@ -84,4 +114,5 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 ### Progress log
 - 2026-10-15: survey + plan approved; Phase 0 landed.
 - 2026-10-15: Phase 1 (pnpm/Node 24/libs 0.3.4/audit 0), CSP, Phase 2 split (212 tests, coverage 95/87/100/97), Phase 3 matrix (1872 cases) landed.
+- 2026-10-15: Phase 7 docs landed. Query-mode assessment (owner's mid-pass ask) recorded as proposed Phase 9.
 - 2026-10-15: Phase 5 web matrix green (`pnpm e2e`): 48 × 11, 0 writes, no loop, real-time, theme, other-page. Found and fixed F11–F13. Desktop runner written, waiting on the unpacked install (Phase 6).

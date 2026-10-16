@@ -131,4 +131,10 @@ Property lookup, class-property inheritance, compiled-DSL rewriting and the
   one wake per minute after ~5 min; `launch-desktop.sh` passes the flags
   that disable it, and the runner measures a 1 s timer first. Never run two
   matrices on one instance.
+- **Query mode is incomplete** (assessed live 2026-10-15, `tasks/todo.md`
+  Phase 9): `or` / `not` / relative `between` / `priority` / `page-tags`
+  are ignored or inverted silently, user and checkbox properties are not
+  read in query mode, `:inputs` and compiled rules other than `(task ?b
+  #{…})` fail. The host's `logseq.api.q` is broken for DSL in the current
+  build, so the plugin must keep (and finish) its own compiler.
 - **`scanPage` is unused** by production code (kept for REQUIREMENTS §2).
