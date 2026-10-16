@@ -9,6 +9,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-16
+
 ### Added
 
 - `pnpm e2e` — live acceptance matrix in the Logseq web app
@@ -22,7 +24,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `pnpm e2e:desktop` — the same matrix in a second instance of the installed
   desktop app on a throwaway graph (test-logseq-desktop skill), applying
   settings by overriding the plugin frame so the shared settings file is
-  never written (proven by content diff). Both runs are green on 1.3.0.
+  never written (proven by content diff). Both runs are green on this release.
 - Content-Security-Policy meta in `index.html`: the plugin iframe can only
   load its own bundle; no remote scripts, objects, forms or base URLs.
 - `src/__sdk_guard__.ts` — compile-time SDK-floor guard: typecheck fails
