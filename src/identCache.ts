@@ -11,6 +11,8 @@
  * plugin would silently exclude every block the user hasn't ticked yet.
  */
 
+import type { SdkPort } from "./sdk";
+
 interface IdentCacheState {
   byShortName: Map<string, string[]>;
   typeByIdent: Map<string, string>;
@@ -69,7 +71,7 @@ export function clear(): void {
  * the aggregator degrades to its regex matcher and to the strict
  * "skip-if-unset" behaviour.
  */
-export async function refresh(shortNames: string[]): Promise<void> {
+export async function refresh(sdk: SdkPort, shortNames: string[]): Promise<void> {
   if (shortNames.length === 0) {
     state = empty();
     return;
@@ -80,7 +82,7 @@ export async function refresh(shortNames: string[]): Promise<void> {
   await Promise.all([
     (async () => {
       try {
-        propRows = await logseq.DB.datascriptQuery(`
+        propRows = await sdk.datascriptQuery(`
           [:find ?ident ?title ?type
            :where
            [?p :db/ident ?ident]
@@ -93,7 +95,7 @@ export async function refresh(shortNames: string[]): Promise<void> {
     })(),
     (async () => {
       try {
-        classRows = await logseq.DB.datascriptQuery(`
+        classRows = await sdk.datascriptQuery(`
           [:find ?prop-ident ?tag-title
            :where
            [?c :logseq.property.class/properties ?p]

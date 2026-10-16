@@ -5,6 +5,9 @@ import {
   getAllClassProps,
 } from "./identCache";
 
+export const DISPLAY_FORMATS = ["percent", "fraction", "both"] as const;
+export type DisplayFormat = (typeof DISPLAY_FORMATS)[number];
+
 /** Default configuration — used when no settings or overrides are provided */
 export const DEFAULTS: ProgressBarConfig = {
   tags: ["Task", "Checklist"],
@@ -75,7 +78,7 @@ export const SETTINGS_SCHEMA = [
   {
     key: "displayFormat",
     type: "enum" as const,
-    enumChoices: ["percent", "fraction", "both"],
+    enumChoices: [...DISPLAY_FORMATS],
     enumPicker: "select" as const,
     default: "percent",
     title: "Display Format",
@@ -89,13 +92,6 @@ export const SETTINGS_SCHEMA = [
     default: "full",
     title: "Bar Width",
     description: "`full` = 100% of block width, `compact` = inline fixed width",
-  },
-  {
-    key: "autoDetect",
-    type: "boolean" as const,
-    default: true,
-    title: "Auto-Detect Mode",
-    description: "Automatically show progress bars on blocks with tagged children.",
   },
   {
     key: "showOnEmpty",
@@ -120,31 +116,30 @@ export const SETTINGS_SCHEMA = [
       'Override segment colors per status. Example: `{"Done": {"light": "#22c55e", "dark": "#16a34a"}}`',
     inputAs: "textarea" as const,
   },
+  {
+    key: "debug",
+    type: "boolean" as const,
+    default: false,
+    title: "Debug logging",
+    description: "Log scan and render details to the plugin console.",
+  },
 ];
 
 /**
- * Raw `logseq.settings` accessor. Centralized so we have exactly one
- * `as unknown` cast in the codebase.
+ * Build the global config from the raw `logseq.settings` record, falling
+ * back to DEFAULTS field by field. Every value is coerced defensively: the
+ * settings file can carry stale or hand-edited values from older versions.
  */
-export function getRawSettings(): Record<string, unknown> {
-  return ((logseq as unknown as { settings?: Record<string, unknown> })
-    .settings) ?? {};
-}
+export function readGlobalConfig(raw: Record<string, unknown>): ProgressBarConfig {
+  const tags =
+    typeof raw.tagsInScope === "string" && raw.tagsInScope.trim()
+      ? raw.tagsInScope.split(",").map((t) => t.trim()).filter(Boolean)
+      : DEFAULTS.tags;
 
-/**
- * Read global config from logseq.settings, falling back to DEFAULTS.
- */
-export function readGlobalConfig(): ProgressBarConfig {
-  const s = getRawSettings();
-
-  const tags = s.tagsInScope
-    ? String(s.tagsInScope).split(",").map((t: string) => t.trim()).filter(Boolean)
-    : DEFAULTS.tags;
-
-  const propertyMappings = safeParseJSON(s.propertyMappings, DEFAULTS.propertyMappings);
-  const completeValues = safeParseJSON(s.completeValues, DEFAULTS.completeValues);
-  const depthStr = String(s.defaultDepth ?? "all").toLowerCase();
-  const depth = depthStr === "all" ? Infinity : parseInt(depthStr, 10) || Infinity;
+  const propertyMappings =
+    parseJsonRecord(raw.propertyMappings, isNonEmptyString) ?? DEFAULTS.propertyMappings;
+  const completeValues =
+    parseJsonRecord(raw.completeValues, isStringArray) ?? DEFAULTS.completeValues;
 
   const { resolvedIdents, propertyTypes, tagClassProps } = snapshotIdentCache(
     Object.values(propertyMappings)
@@ -154,18 +149,67 @@ export function readGlobalConfig(): ProgressBarConfig {
     tags,
     propertyMappings,
     completeValues,
-    depth,
-    strict: (s.strictTagFilter as boolean | undefined) ?? DEFAULTS.strict,
-    displayFormat:
-      (s.displayFormat as ProgressBarConfig["displayFormat"] | undefined) ??
-      DEFAULTS.displayFormat,
-    barWidth: (s.barWidth as string | undefined) ?? DEFAULTS.barWidth,
-    showOnEmpty:
-      (s.showOnEmpty as boolean | undefined) ?? DEFAULTS.showOnEmpty,
+    depth: parseDepth(raw.defaultDepth),
+    strict: parseBoolean(raw.strictTagFilter, DEFAULTS.strict),
+    displayFormat: parseDisplayFormat(raw.displayFormat) ?? DEFAULTS.displayFormat,
+    barWidth: typeof raw.barWidth === "string" && raw.barWidth.trim() ? raw.barWidth.trim() : DEFAULTS.barWidth,
+    showOnEmpty: parseBoolean(raw.showOnEmpty, DEFAULTS.showOnEmpty),
     resolvedIdents,
     propertyTypes,
     tagClassProps,
   };
+}
+
+/** `all`, empty, non-numeric or ≤ 0 → unlimited; otherwise the integer. */
+export function parseDepth(value: unknown): number {
+  if (typeof value === "number") return Number.isFinite(value) && value >= 1 ? Math.floor(value) : Infinity;
+  if (typeof value !== "string") return Infinity;
+  const n = parseInt(value.trim(), 10);
+  return Number.isFinite(n) && n >= 1 ? n : Infinity;
+}
+
+export function parseDisplayFormat(value: unknown): DisplayFormat | null {
+  const v = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return (DISPLAY_FORMATS as readonly string[]).includes(v) ? (v as DisplayFormat) : null;
+}
+
+function parseBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
+/**
+ * Parse a JSON object setting, keeping only entries whose value passes
+ * `isValue`. Returns null when the input is not a JSON object at all, so
+ * the caller can fall back to its default.
+ */
+function parseJsonRecord<T>(
+  value: unknown,
+  isValue: (v: unknown) => v is T
+): Record<string, T> | null {
+  if (typeof value !== "string") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const out: Record<string, T> = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (k.trim() && isValue(v)) out[k.trim()] = v;
+  }
+  return out;
+}
+
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
 /**
@@ -178,9 +222,7 @@ export function readGlobalConfig(): ProgressBarConfig {
  *                       can carry out-of-scope tags that still imply an
  *                       inherited default we want to count).
  */
-function snapshotIdentCache(
-  propertyNames: string[]
-): {
+function snapshotIdentCache(propertyNames: string[]): {
   resolvedIdents: Record<string, string[]>;
   propertyTypes: Record<string, string>;
   tagClassProps: Record<string, string[]>;
@@ -202,11 +244,7 @@ function snapshotIdentCache(
     }
   }
 
-  return {
-    resolvedIdents,
-    propertyTypes,
-    tagClassProps: getAllClassProps(),
-  };
+  return { resolvedIdents, propertyTypes, tagClassProps: getAllClassProps() };
 }
 
 /**
@@ -222,7 +260,7 @@ export function resolveConfig(
   if (overrides.tags) config.tags = overrides.tags as string[];
   if (overrides.depth !== undefined) config.depth = overrides.depth as number;
   if (overrides.strict !== undefined) config.strict = overrides.strict as boolean;
-  if (overrides.displayFormat) config.displayFormat = overrides.displayFormat as ProgressBarConfig["displayFormat"];
+  if (overrides.displayFormat) config.displayFormat = overrides.displayFormat as DisplayFormat;
   if (overrides.barWidth) config.barWidth = overrides.barWidth as string;
   if (overrides.showOnEmpty !== undefined) config.showOnEmpty = overrides.showOnEmpty as boolean;
   if (overrides.queryUUID) config.queryUUID = overrides.queryUUID as string;
@@ -256,13 +294,4 @@ export function resolveConfig(
   }
 
   return config;
-}
-
-function safeParseJSON<T>(value: unknown, fallback: T): T {
-  if (typeof value !== "string") return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
 }

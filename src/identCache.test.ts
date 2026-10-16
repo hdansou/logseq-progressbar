@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   _seedForTest,
   _clearForTest,
@@ -8,7 +8,8 @@ import {
   getAllClassProps,
   clear,
   buildIndexes,
-} from "../identCache";
+  refresh,
+} from "./identCache";
 
 describe("identCache", () => {
   beforeEach(() => {
@@ -161,5 +162,73 @@ describe("identCache", () => {
       const { titleIndex } = buildIndexes(propRows, null);
       expect(titleIndex.get("check")).toEqual([":user.property/check-pgUd_nnQ"]);
     });
+  });
+});
+
+describe("refresh (live queries through the SdkPort)", () => {
+  const sdk = (impl: (q: string) => unknown) => ({
+    datascriptQuery: vi.fn(async (q: string) => impl(q)),
+    getBlock: vi.fn(async () => null),
+    getBlockProperties: vi.fn(async () => ({})),
+    getPageBlocksTree: vi.fn(async () => []),
+  });
+
+  beforeEach(() => _clearForTest());
+
+  it("populates all three maps from the property and class-property queries", async () => {
+    await refresh(
+      sdk((q) =>
+        q.includes("class/properties")
+          ? [[":user.property/check-pgUd_nnQ", "Tido"]]
+          : [
+              [":user.property/check-pgUd_nnQ", "check", ":checkbox"],
+              [":logseq.property/status", "Status", "default"],
+            ]
+      ),
+      ["check", "status"]
+    );
+    expect(lookup("check")).toEqual([":user.property/check-pgUd_nnQ"]);
+    expect(lookup("status")).toEqual([":logseq.property/status"]);
+    expect(lookupType(":user.property/check-pgUd_nnQ")).toBe("checkbox");
+    expect(isClassProperty("tido", "user.property/check-pgUd_nnQ")).toBe(true);
+  });
+
+  it("empties the cache when no names are requested", async () => {
+    _seedForTest({ byShortName: { check: [":x/check"] } });
+    const port = sdk(() => []);
+    await refresh(port, []);
+    expect(lookup("check")).toEqual([]);
+    expect(port.datascriptQuery).not.toHaveBeenCalled();
+  });
+
+  it("degrades to an empty section when a query throws", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await refresh(
+      sdk((q) => {
+        if (q.includes("class/properties")) throw new Error("boom");
+        return [[":logseq.property/status", "Status", "default"]];
+      }),
+      ["status"]
+    );
+    expect(lookup("status")).toEqual([":logseq.property/status"]);
+    expect(getAllClassProps()).toEqual({});
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("normalizes keyword-object idents and types, and skips malformed rows", () => {
+    const { titleIndex, typeByIdent, classPropsByTag } = buildIndexes(
+      [
+        [{ ns: "user.property", name: "check-AbCdEfGh" }, "check", { name: "checkbox" }],
+        ["", "x", ""],
+        "not-a-row",
+        [{ toString: () => "logseq.property/status" }, "Status", { toString: () => ":default" }],
+      ],
+      [[{ ns: "user.property", name: "check-AbCdEfGh" }, "Tido"], ["", "x"], ["only-one"]]
+    );
+    expect(titleIndex.get("check")).toEqual([":user.property/check-AbCdEfGh"]);
+    expect(typeByIdent.get("user.property/check-AbCdEfGh")).toBe("checkbox");
+    expect(typeByIdent.get("logseq.property/status")).toBe("default");
+    expect(classPropsByTag.get("tido")).toEqual(new Set(["user.property/check-AbCdEfGh"]));
   });
 });

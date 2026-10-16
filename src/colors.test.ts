@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getStatusColor, buildSegments, parseColorOverrides } from "../colors";
+import { getStatusColor, buildSegments, parseColorOverrides, isSafeColor } from "./colors";
 
 describe("getStatusColor", () => {
   it("returns default light color for Done", () => {
@@ -63,5 +63,35 @@ describe("parseColorOverrides", () => {
   it("returns empty object for non-string input", () => {
     expect(parseColorOverrides(null)).toEqual({});
     expect(parseColorOverrides(42)).toEqual({});
+  });
+});
+
+describe("colour validation — the only way a colour reaches style=\"\"", () => {
+  it("accepts hex, rgb()/hsl(), var(--x) and keywords", () => {
+    for (const v of ["#abc", "#aabbcc", "#aabbccdd", "rgb(1, 2, 3)", "rgba(1,2,3,.5)", "hsl(120 50% 50% / 0.5)", "var(--ls-link-text-color)", "tomato"]) {
+      expect(isSafeColor(v), v).toBe(true);
+    }
+  });
+  it("rejects values that could break out of the declaration", () => {
+    for (const v of ["#abc;color:red", "red}", "url(x)", "expression(1)", "rgb(1,2,3) !important", "", 7, null]) {
+      expect(isSafeColor(v), String(v)).toBe(false);
+    }
+  });
+  it("getStatusColor falls back to the neutral colour for an unsafe override", () => {
+    expect(getStatusColor("Done", "light", { done: { light: "#fff;x", dark: "#000" } })).toBe("#d1d5db");
+    expect(getStatusColor("Done", "dark", { done: { light: "#fff;x", dark: "#000" } })).toBe("#000");
+  });
+});
+
+describe("parseColorOverrides — shape validation", () => {
+  it("keeps only { light, dark } string pairs", () => {
+    const raw = '{"Done": {"light": "#1", "dark": "#2"}, "Todo": "red", "Doing": {"light": "#3"}, "x": null}';
+    expect(parseColorOverrides(raw)).toEqual({ Done: { light: "#1", dark: "#2" } });
+  });
+  it("returns {} for invalid JSON, arrays, non-strings", () => {
+    expect(parseColorOverrides("nope")).toEqual({});
+    expect(parseColorOverrides("[1]")).toEqual({});
+    expect(parseColorOverrides("null")).toEqual({});
+    expect(parseColorOverrides(undefined)).toEqual({});
   });
 });

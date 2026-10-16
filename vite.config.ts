@@ -25,6 +25,7 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       // The adapter talks to the live SDK and is covered by the live matrices.
       exclude: ["src/index.ts", "src/__sdk_guard__.ts", "src/**/*.test.ts"],
+      thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },
 });

@@ -1,4 +1,4 @@
-import type { StatusColor, BarSegment, ProgressBarConfig } from "./types";
+import type { StatusColor, BarSegment } from "./types";
 
 /** Default color palette — keys are lowercase status names */
 const DEFAULT_COLORS: Record<string, StatusColor> = {
@@ -16,7 +16,9 @@ const DEFAULT_COLORS: Record<string, StatusColor> = {
   cancelled:   { light: "#fca5a5", dark: "#ef4444" },
 };
 
-const FALLBACK_COLOR: StatusColor = { light: "#d1d5db", dark: "#4b5563" };
+export const FALLBACK_COLOR: StatusColor = { light: "#d1d5db", dark: "#4b5563" };
+
+export type ThemeMode = "light" | "dark";
 
 /**
  * Segment ordering priority — completed statuses first, then active, then pending.
@@ -38,23 +40,29 @@ const ORDER_PRIORITY: Record<string, number> = {
 };
 
 /**
+ * A colour value that is safe to place inside `style="background:…"`:
+ * hex, `rgb()/rgba()/hsl()/hsla()` with numeric arguments, a CSS variable
+ * reference, or a bare keyword. Anything else (`;`, `}`, `url(`, …) is
+ * rejected so a settings value can never break out of the declaration.
+ */
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\([\d\s.,%/]+\)|var\(--[a-z0-9-]+\)|[a-z]+)$/i;
+
+export function isSafeColor(value: unknown): value is string {
+  return typeof value === "string" && SAFE_COLOR.test(value.trim());
+}
+
+/**
  * Get the color for a status value, respecting user overrides.
  */
 export function getStatusColor(
   status: string,
-  mode: "light" | "dark",
+  mode: ThemeMode,
   overrides: Record<string, StatusColor>
 ): string {
   const key = status.toLowerCase();
-
-  // User override first
-  if (overrides[key]) return overrides[key][mode];
-  if (overrides[status]) return overrides[status][mode];
-
-  // Default palette
-  if (DEFAULT_COLORS[key]) return DEFAULT_COLORS[key][mode];
-
-  return FALLBACK_COLOR[mode];
+  const candidate =
+    overrides[key]?.[mode] ?? overrides[status]?.[mode] ?? DEFAULT_COLORS[key]?.[mode];
+  return isSafeColor(candidate) ? candidate.trim() : FALLBACK_COLOR[mode];
 }
 
 /**
@@ -65,7 +73,7 @@ export function buildSegments(
   counts: Record<string, number>,
   total: number,
   completeValues: Record<string, string[]>,
-  mode: "light" | "dark",
+  mode: ThemeMode,
   colorOverrides: Record<string, StatusColor>
 ): BarSegment[] {
   const completeSet = new Set<string>();
@@ -94,13 +102,24 @@ export function buildSegments(
 }
 
 /**
- * Parse user color overrides from settings JSON string.
+ * Parse user color overrides from the settings JSON string. Only entries
+ * shaped `{ light: string, dark: string }` survive; the values themselves
+ * are validated again by `getStatusColor` at render time.
  */
 export function parseColorOverrides(raw: unknown): Record<string, StatusColor> {
   if (typeof raw !== "string") return {};
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as Record<string, StatusColor>;
+    parsed = JSON.parse(raw);
   } catch {
     return {};
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const out: Record<string, StatusColor> = {};
+  for (const [status, entry] of Object.entries(parsed)) {
+    if (!entry || typeof entry !== "object") continue;
+    const { light, dark } = entry as Record<string, unknown>;
+    if (typeof light === "string" && typeof dark === "string") out[status] = { light, dark };
+  }
+  return out;
 }

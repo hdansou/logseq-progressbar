@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const root = resolve(__dirname, "../..");
+const root = resolve(__dirname, "..");
 
 function readJson(path: string): Record<string, any> {
   return JSON.parse(readFileSync(resolve(root, path), "utf8"));

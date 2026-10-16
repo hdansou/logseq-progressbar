@@ -1,15 +1,9 @@
 import type { ProgressBarConfig } from "./types";
+import { parseDepth, parseDisplayFormat } from "./settings";
 
-/** Known renderer params and their config keys */
-const PARAM_MAP: Record<string, keyof ProgressBarConfig | "complete" | "format" | "width"> = {
-  tags: "tags",
-  property: "propertyMappings",
-  complete: "complete",
-  depth: "depth",
-  strict: "strict",
-  format: "displayFormat",
-  width: "barWidth",
-  query: "queryUUID",
+export type RendererOverrides = Partial<ProgressBarConfig> & {
+  _property?: string;
+  _complete?: string[];
 };
 
 /**
@@ -27,10 +21,8 @@ export function parsePipeList(value: string): string[] {
  *
  * Example args: [":progress-bar", "tags: Task|Bug", "property: status", "depth: 2"]
  */
-export function parseRendererArgs(
-  args: string[]
-): Partial<ProgressBarConfig> & { _property?: string; _complete?: string[] } {
-  const result: Record<string, unknown> = {};
+export function parseRendererArgs(args: string[]): RendererOverrides {
+  const result: RendererOverrides = {};
 
   // Skip first arg (renderer type ":progress-bar")
   for (let i = 1; i < args.length; i++) {
@@ -40,8 +32,7 @@ export function parseRendererArgs(
 
     const key = arg.slice(0, colonIdx).trim().toLowerCase();
     const value = arg.slice(colonIdx + 1).trim();
-
-    if (!(key in PARAM_MAP)) continue;
+    if (!value) continue;
 
     switch (key) {
       case "tags":
@@ -56,16 +47,16 @@ export function parseRendererArgs(
         result._complete = parsePipeList(value);
         break;
       case "depth":
-        result.depth = value.toLowerCase() === "all" ? Infinity : parseInt(value, 10) || Infinity;
+        result.depth = parseDepth(value);
         break;
       case "strict":
         result.strict = value.toLowerCase() === "true";
         break;
-      case "format":
-        if (["percent", "fraction", "both"].includes(value.toLowerCase())) {
-          result.displayFormat = value.toLowerCase();
-        }
+      case "format": {
+        const format = parseDisplayFormat(value);
+        if (format) result.displayFormat = format;
         break;
+      }
       case "width":
         result.barWidth = value;
         break;
@@ -75,5 +66,5 @@ export function parseRendererArgs(
     }
   }
 
-  return result as Partial<ProgressBarConfig> & { _property?: string; _complete?: string[] };
+  return result;
 }

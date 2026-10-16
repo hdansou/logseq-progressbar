@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRendererArgs, parsePipeList } from "../parser";
+import { parseRendererArgs, parsePipeList } from "./parser";
 
 describe("parsePipeList", () => {
   it("parses single value", () => {

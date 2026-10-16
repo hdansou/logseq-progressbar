@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { aggregate, formatLabel } from "../aggregator";
-import { DEFAULTS } from "../config";
-import type { ProgressBarConfig, StatusCounts } from "../types";
+import { aggregate, formatLabel } from "./aggregator";
+import { DEFAULTS } from "./settings";
+import type { ProgressBarConfig, StatusCounts } from "./types";
 
 const baseConfig: ProgressBarConfig = {
   ...DEFAULTS,

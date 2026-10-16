@@ -1,6 +1,21 @@
 import type { BarSegment, StatusCounts, ProgressBarConfig } from "./types";
 import { formatLabel } from "./aggregator";
 
+export const COMPACT_WIDTH = "200px";
+
+/**
+ * A width value that is safe inside `style="width:…"`: `full`, `compact`,
+ * or a plain CSS length / percentage. Anything else falls back to full.
+ */
+const SAFE_LENGTH = /^\d+(\.\d+)?(px|%|em|rem|ch|vw)$/i;
+
+export function cssWidth(barWidth: unknown): string {
+  const v = typeof barWidth === "string" ? barWidth.trim().toLowerCase() : "";
+  if (v === "compact") return COMPACT_WIDTH;
+  if (SAFE_LENGTH.test(v)) return v;
+  return "100%";
+}
+
 /**
  * Render the progress bar HTML string.
  */
@@ -13,32 +28,37 @@ export function renderBar(
   if (stats.total === 0 && !config.showOnEmpty) return "";
 
   const label = formatLabel(stats, config.displayFormat);
-  const tooltipLines = buildTooltipLines(segments, stats);
-  const tooltipText = escapeAttr(tooltipLines.join("\n"));
+  const tooltip = escape(buildTooltipLines(segments, stats).join("\n")).replace(/\n/g, "&#10;");
 
-  const widthStyle = resolveWidthStyle(config.barWidth);
   const segmentsHtml = segments
     .map(
       (seg) =>
-        `<div class="pb-segment" style="width:${seg.percent.toFixed(2)}%;background:${seg.color}" data-label="${escapeAttr(seg.label)}: ${seg.count}"></div>`
+        `<div class="pb-segment" style="width:${seg.percent.toFixed(2)}%;background:${seg.color}" data-label="${escape(seg.label)}: ${seg.count}"></div>`
     )
     .join("");
 
-  return `<div class="pb-wrapper" style="${widthStyle}" data-id="${instanceId}">
-  <div class="pb-bar" title="${tooltipText}">
+  return `<div class="pb-wrapper" style="width:${cssWidth(config.barWidth)}" data-id="${escape(instanceId)}">
+  <div class="pb-bar" title="${tooltip}">
     ${segmentsHtml}
   </div>
-  <span class="pb-label">${escapeHtml(label)}</span>
+  <span class="pb-label">${escape(label)}</span>
 </div>`;
 }
 
 /**
- * Render an empty/error state.
+ * Render an empty state.
  */
-export function renderEmpty(message: string, instanceId: string): string {
-  return `<div class="pb-wrapper pb-empty" data-id="${instanceId}">
-  <span class="pb-empty-label">${escapeHtml(message)}</span>
+export function renderEmpty(message: string, instanceId: string, barWidth: unknown = "full"): string {
+  return `<div class="pb-wrapper pb-empty" style="width:${cssWidth(barWidth)}" data-id="${escape(instanceId)}">
+  <span class="pb-empty-label">${escape(message)}</span>
 </div>`;
+}
+
+/**
+ * Render an error state (message is the caught error's text).
+ */
+export function renderError(message: string, instanceId: string): string {
+  return `<div class="pb-error" data-id="${escape(instanceId)}">${escape(message)}</div>`;
 }
 
 /**
@@ -51,10 +71,7 @@ export const PLUGIN_CSS = `
   align-items: center;
   gap: 8px;
   padding: 4px 0;
-  width: 100%;
-}
-.pb-wrapper.pb-full-width {
-  width: 100%;
+  max-width: 100%;
 }
 .pb-bar {
   flex: 1;
@@ -116,21 +133,12 @@ function buildTooltipLines(segments: BarSegment[], stats: StatusCounts): string[
   return lines;
 }
 
-function resolveWidthStyle(barWidth: string): string {
-  if (barWidth === "full") return "width:100%";
-  if (barWidth === "compact") return "width:200px;display:inline-flex";
-  // Custom pixel or other CSS value
-  return `width:${barWidth};display:inline-flex`;
-}
-
-function escapeHtml(str: string): string {
+/** One escaper for text nodes and attribute values alike. */
+export function escape(str: string): string {
   return str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function escapeAttr(str: string): string {
-  return str.replace(/"/g, "&quot;").replace(/\n/g, "&#10;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

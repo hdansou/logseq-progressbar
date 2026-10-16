@@ -1,224 +1,138 @@
 import "@logseq/libs";
-import { parseRendererArgs } from "./parser";
-import {
-  getRawSettings,
-  readGlobalConfig,
-  resolveConfig,
-  SETTINGS_SCHEMA,
-} from "./config";
-import { scanChildren, countQueryStatuses, filterByTags } from "./scanner";
-import { aggregate } from "./aggregator";
-import { debug } from "./debug";
-import type { StatusCounts } from "./types";
-import { buildSegments, parseColorOverrides } from "./colors";
-import { renderBar, renderEmpty, PLUGIN_CSS } from "./renderer";
+import type { SdkPort } from "./sdk";
+import type { ThemeMode } from "./colors";
+import { SETTINGS_SCHEMA, readGlobalConfig } from "./settings";
+import { computeStats, renderTemplate, resolveInstance } from "./progress";
+import { PLUGIN_CSS, renderError } from "./renderer";
+import { createSlotRegistry, type SlotEntry } from "./slots";
+import { debug, setDebug } from "./debug";
 import * as identCache from "./identCache";
 
-async function main() {
-  debug("plugin loaded");
+/**
+ * Thin SDK adapter — the only module that imports `@logseq/libs`.
+ * Everything that can be tested without a host lives in the pure modules;
+ * this file only wires hooks, owns the debounce timer and publishes HTML.
+ */
+const LOG = "[progress-bar]";
+const sdk: SdkPort = {
+  datascriptQuery: (q) => logseq.DB.datascriptQuery(q),
+  getBlock: (uuid, opts) => logseq.Editor.getBlock(uuid, opts),
+  getBlockProperties: (uuid) => logseq.Editor.getBlockProperties(uuid),
+  getPageBlocksTree: (name) => logseq.Editor.getPageBlocksTree(name),
+};
+const slots = createSlotRegistry();
+const offHooks: Array<() => void> = [];
+let themeMode: ThemeMode = "dark";
+let rerenderTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const offHooks: Array<() => void> = [];
-  let themeMode: "light" | "dark" = "dark";
+function rawSettings(): Record<string, unknown> {
+  return (logseq.settings ?? {}) as Record<string, unknown>;
+}
 
-  // --- Settings ---
-  logseq.useSettingsSchema(SETTINGS_SCHEMA as Parameters<typeof logseq.useSettingsSchema>[0]);
+/** Render one slot; publish only if no newer render of the same slot has started. */
+async function render(entry: SlotEntry): Promise<void> {
+  const generation = slots.begin(entry.slot);
+  // Slot-scoped key: Logseq renders a query block's title through several
+  // slot instances, and a block-scoped key would show the bar in each.
+  const instanceId = `pb-${entry.slot}`;
 
-  // --- CSS ---
-  logseq.provideStyle(PLUGIN_CSS);
-
-  // --- Property ident cache ---
-  // Resolve user-property idents (e.g. `:user.property/check-pgUd_nnQ`)
-  // from configured short names. One DB query per refresh; aggregator
-  // falls back to regex if the cache is empty.
-  async function refreshIdentCache() {
-    const cfg = readGlobalConfig();
-    const names = Array.from(new Set(Object.values(cfg.propertyMappings)));
-    try {
-      await identCache.refresh(names);
-      debug("identCache refreshed for:", names);
-    } catch (e) {
-      console.warn("Progress Bar: identCache refresh failed", e);
+  // Guarded provideUI (AGENTS.md): the slot can unmount during our async DB
+  // work; publishing then only produces "can not resolve selector" noise.
+  const safeProvideUI = async (template: string) => {
+    if (!slots.isCurrent(entry.slot, generation)) return;
+    if (await logseq.UI.checkSlotValid(entry.slot)) {
+      logseq.provideUI({ key: instanceId, slot: entry.slot, template });
+    } else {
+      slots.forget(entry.slot);
     }
+  };
+
+  try {
+    const { config, colorOverrides } = resolveInstance(rawSettings(), entry.args);
+    debug("render", entry.slot, config);
+    const stats = await computeStats(sdk, entry.uuid, config);
+    debug("stats", entry.slot, stats);
+    await safeProvideUI(renderTemplate(stats, config, themeMode, colorOverrides, instanceId));
+  } catch (err) {
+    console.error(`${LOG} render error:`, err);
+    await safeProvideUI(renderError(err instanceof Error ? err.message : String(err), instanceId));
   }
+}
+
+async function rerenderAll(): Promise<void> {
+  for (const entry of slots.entries()) await render(entry);
+}
+
+/** Coalesce bursts of DB / settings / theme events into one re-render pass. */
+function scheduleRerender(delay: number): void {
+  clearTimeout(rerenderTimer);
+  rerenderTimer = setTimeout(() => {
+    if (slots.size > 0) void rerenderAll();
+  }, delay);
+}
+
+/** Resolve user-property idents for the configured short names (one DB query). */
+async function refreshIdentCache(): Promise<void> {
+  const names = Object.values(readGlobalConfig(rawSettings()).propertyMappings);
+  try {
+    await identCache.refresh(sdk, [...new Set(names)]);
+  } catch (err) {
+    console.warn(`${LOG} identCache refresh failed`, err);
+  }
+}
+
+async function main(): Promise<void> {
+  logseq.useSettingsSchema(SETTINGS_SCHEMA);
+  setDebug(rawSettings().debug === true);
+  logseq.provideStyle({ key: "progress-bar", style: PLUGIN_CSS });
   await refreshIdentCache();
 
-  // --- Theme Detection ---
   try {
-    const configs = await logseq.App.getUserConfigs();
-    if (configs?.preferredThemeMode) {
-      themeMode = configs.preferredThemeMode as "light" | "dark";
-    }
+    const mode = (await logseq.App.getUserConfigs())?.preferredThemeMode;
+    if (mode === "light" || mode === "dark") themeMode = mode;
   } catch {
-    // default to dark
+    // keep the dark default
   }
 
-  const offTheme = logseq.App.onThemeModeChanged(({ mode }) => {
-    themeMode = mode as "light" | "dark";
-    // Re-render all active bars with new colors
-    rerenderAll();
-  });
-  if (typeof offTheme === "function") offHooks.push(offTheme);
-
-  // --- Track active renderer slots for re-rendering ---
-  const activeRenderers = new Map<
-    string,
-    { slot: string; args: string[]; uuid: string }
-  >();
-
-  // --- Core render function ---
-  async function renderProgressBar(
-    slot: string,
-    args: string[],
-    blockUuid: string
-  ) {
-    // Slot-scoped key — Logseq query-class blocks render the same block title
-    // through multiple slot instances; a block-scoped key would cause the bar
-    // to appear in each slot and look doubled.
-    const instanceId = `pb-${slot}`;
-
-    // Guarded provideUI — skips the call if the slot has been unmounted
-    // during our async work. Without this, Logseq logs a "can not resolve
-    // selector target" warning per stale slot.
-    const safeProvideUI = async (template: string) => {
-      if (await logseq.UI.checkSlotValid(slot)) {
-        logseq.provideUI({ key: instanceId, slot, template });
-      } else {
-        activeRenderers.delete(`${slot}-${blockUuid}`);
-      }
-    };
-
-    try {
-      const globalConfig = readGlobalConfig();
-      const overrides = parseRendererArgs(args);
-      const config = resolveConfig(globalConfig, overrides);
-      debug("resolved config:", config);
-      const colorOverrides = parseColorOverrides(
-        getRawSettings().colorOverrides
-      );
-
-      // Try query mode (explicit `query: <uuid>` param OR block has :logseq.property/query).
-      // countQueryStatuses returns null when the block has no query property at all,
-      // which is our signal to fall back to children-mode scanning.
-      let stats: StatusCounts | null = await countQueryStatuses(
-        config.queryUUID ?? blockUuid,
-        config
-      );
-      if (stats === null) {
-        let blocks = await scanChildren(blockUuid, config);
-        blocks = filterByTags(blocks, config);
-        stats = aggregate(blocks, config);
-      }
-      debug("stats:", stats);
-
-      // Handle empty state
-      if (stats.total === 0) {
-        await safeProvideUI(
-          config.showOnEmpty ? renderEmpty("No matching items", instanceId) : ""
-        );
-        return;
-      }
-
-      // Build segments and render
-      const segments = buildSegments(
-        stats.counts,
-        stats.total,
-        config.completeValues,
-        themeMode,
-        colorOverrides
-      );
-
-      await safeProvideUI(renderBar(segments, stats, config, instanceId));
-    } catch (err) {
-      console.error("Progress Bar render error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      await safeProvideUI(
-        `<div class="pb-error">${escapeHtml(message)}</div>`
-      );
-    }
-  }
-
-  // --- Re-render all active bars (on theme change, settings change, DB change) ---
-  async function rerenderAll() {
-    for (const [key, { slot, args, uuid }] of activeRenderers.entries()) {
-      const valid = await logseq.UI.checkSlotValid(slot);
-      if (valid) {
-        await renderProgressBar(slot, args, uuid);
-      } else {
-        activeRenderers.delete(key);
-      }
-    }
-  }
-
-  // --- Macro Renderer ---
-  logseq.App.onMacroRendererSlotted(async ({ slot, payload }) => {
-    const args = payload.arguments;
-    const type = args[0]?.trim();
-    debug("onMacroRendererSlotted:", { type, args, uuid: payload.uuid });
-
-    if (type !== ":progress-bar") return;
-
-    const blockUuid = payload.uuid;
-    const key = `${slot}-${blockUuid}`;
-
-    // Track for re-rendering
-    activeRenderers.set(key, {
-      slot,
-      args,
-      uuid: blockUuid,
-    });
-
-    await renderProgressBar(slot, args, blockUuid);
+  // Slot hooks return no off-function in the SDK; the host drops them on unload.
+  logseq.App.onMacroRendererSlotted(({ slot, payload }) => {
+    if (payload.arguments[0]?.trim() !== ":progress-bar") return;
+    void render(slots.track(slot, payload.arguments, payload.uuid));
   });
 
-  // --- Slash Command ---
-  logseq.Editor.registerSlashCommand("progress-bar", async () => {
+  offHooks.push(
+    logseq.App.onThemeModeChanged(({ mode }) => {
+      themeMode = mode;
+      scheduleRerender(50);
+    }),
+    logseq.DB.onChanged(() => scheduleRerender(300)),
+    logseq.onSettingsChanged(() => {
+      setDebug(rawSettings().debug === true);
+      void refreshIdentCache().then(() => scheduleRerender(100));
+    }),
+    logseq.App.onCurrentGraphChanged(() => {
+      identCache.clear();
+      void refreshIdentCache().then(() => scheduleRerender(100));
+    })
+  );
+
+  const unregister = logseq.Editor.registerSlashCommand("progress-bar", async () => {
     try {
       await logseq.Editor.insertAtEditingCursor("{{renderer :progress-bar}}");
     } catch (err) {
-      console.error("Progress Bar: Failed to insert", err);
+      console.error(`${LOG} failed to insert`, err);
       await logseq.UI.showMsg("Failed to insert progress bar", "error");
     }
   });
+  if (typeof unregister === "function") offHooks.push(unregister);
 
-  // --- Real-Time Updates via DB.onChanged ---
-  const offChanged = logseq.DB.onChanged(async () => {
-    if (activeRenderers.size > 0) {
-      await rerenderAll();
-    }
-  });
-  if (typeof offChanged === "function") offHooks.push(offChanged);
-
-  // --- Settings Change ---
-  logseq.onSettingsChanged(async () => {
-    await refreshIdentCache();
-    await rerenderAll();
-  });
-
-  // --- Graph Switch ---
-  // Different graph means different :db/ident suffixes — clear and re-resolve.
-  const offGraph = logseq.App.onCurrentGraphChanged(async () => {
-    identCache.clear();
-    await refreshIdentCache();
-    await rerenderAll();
-  });
-  if (typeof offGraph === "function") offHooks.push(offGraph);
-
-  // --- Cleanup ---
   logseq.beforeunload(async () => {
-    offHooks.forEach((off) => off());
-    offHooks.length = 0;
-    activeRenderers.clear();
+    clearTimeout(rerenderTimer);
+    for (const off of offHooks.splice(0)) off();
+    slots.clear();
   });
 
   debug("plugin ready");
 }
 
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-logseq.ready(main).catch(console.error);
+logseq.ready(main).catch((err) => console.error(`${LOG} failed to start:`, err));
