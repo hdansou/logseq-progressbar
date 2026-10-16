@@ -55,9 +55,9 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [x] 48 permutations × 11 scenarios = 539 checks green; status + checkbox flips re-render (1/4, 2/3); theme light/dark palette verified by computed colour; journal-page append → one burst (61 reads), bars unchanged
 
 ### Phase 6 — live run, desktop app (`pnpm e2e:desktop`)
-- [ ] owner loads this folder once as an unpacked plugin in Logseq-DB.app (not in externals yet)
-- [x] `scripts/e2e/desktop-matrix.sh` + `launch-desktop.sh` written (not yet run) with throttling flags, throwaway graph, settings override (shared settings file untouched, verified by content)
-- [ ] matrix green; instance stopped; throwaway graph removed
+- [x] owner loaded this folder once as an unpacked plugin in Logseq-DB.app (2026-10-16; now in `preferences.json` externals)
+- [x] `scripts/e2e/desktop-matrix.sh` + `launch-desktop.sh` with throttling flags, throwaway graph, settings override (shared settings file untouched, verified by content)
+- [x] matrix green 2026-10-16 (port 9345, graph `progressbar-desktop-test`, 1 s timer = 1001 ms): 48 × 11 = 539 checks, 0 failures, 0 plugin writes, 2877 reads, realtime 1/4 → 2/3 with reads 124 → 124 over 5 s, theme light/dark palette, other-page burst 61 reads; `~/.logseq/settings/logseq-progressbar.json` content identical; instance stopped with `stop.sh`; graph removed with `logseq graph remove` (its `~/.logseq/graphs.edn` registry entry is left behind — see lessons)
 
 ### Phase 7 — docs
 - [x] README (pnpm, port, privacy = no graph writes, testing); REQUIREMENTS (§1.1, §5.4, §8.1, §10, §11, §12); CLAUDE.md; AGENTS.md; `docs/query-progress-bar.md`; TESTING.md; CHANGELOG
@@ -116,3 +116,4 @@ and `{id}` refs.
 - 2026-10-15: Phase 1 (pnpm/Node 24/libs 0.3.4/audit 0), CSP, Phase 2 split (212 tests, coverage 95/87/100/97), Phase 3 matrix (1872 cases) landed.
 - 2026-10-15: Phase 7 docs landed. Query-mode assessment (owner's mid-pass ask) recorded as proposed Phase 9.
 - 2026-10-15: Phase 5 web matrix green (`pnpm e2e`): 48 × 11, 0 writes, no loop, real-time, theme, other-page. Found and fixed F11–F13. Desktop runner written, waiting on the unpacked install (Phase 6).
+- 2026-10-16: Phase 6 desktop matrix green (`pnpm e2e:desktop 9345`), same numbers as the web run; `~/.logseq/preferences.json` and the settings file unchanged by the run. Remaining: Phase 8 release on go-ahead; Phase 9 decision.

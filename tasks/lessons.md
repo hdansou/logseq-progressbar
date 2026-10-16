@@ -79,3 +79,13 @@ an allowed and a foreign origin.
 
 **Rule**: Verify a security setting from the outside (curl with a foreign
 Origin), never from the config file alone; a later hook can override it.
+
+## Desktop test instance: graph removal leaves a registry entry
+
+`logseq graph remove -g <name>` after `stop.sh` deletes the graph directory,
+but the instance had already written the graph into `~/.logseq/graphs.edn`
+when it switched to it, and the CLI does not take that entry back out. The
+app lists graphs by scanning the directory, so the stale entry is invisible
+in All graphs, but a content diff of `graphs.edn` will show it. Removing the
+graph from the instance's All graphs page *before* `stop.sh` keeps the
+registry clean; do that when the proof must cover `graphs.edn` too.

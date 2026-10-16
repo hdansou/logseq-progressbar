@@ -81,8 +81,10 @@ pnpm audit          # must report "No known vulnerabilities found"
   install from this folder so the instance loads it as
   `lsp://logseq.com/external/…`. Settings are applied by overriding the
   plugin frame's `logseq.settings` getter; the runner diffs
-  `~/.logseq/settings/logseq-progressbar.json` before/after. Stop with the
-  skill's `stop.sh`; remove the throwaway graph from All graphs.
+  `~/.logseq/settings/logseq-progressbar.json` before/after. Remove the
+  throwaway graph from the instance's All graphs page, then stop with the
+  skill's `stop.sh` (`logseq graph remove` after the stop works too but
+  leaves the entry in `~/.logseq/graphs.edn`).
 - **Payload rules** (`playwright-cli eval` / `cdp.mjs eval`): one
   expression, no top-level `;`, no arrow functions, result stored on
   `window.__…` and polled.
