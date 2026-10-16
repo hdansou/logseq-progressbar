@@ -26,13 +26,43 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Dev server: `vite-plugin-logseq` replaced by the in-repo
   `vite-logseq-safe-plugin.ts` so CORS can be limited to the Logseq origins
   (`localhost:3001`) instead of `*`; pinned port 8296 (`pnpm dev`).
+- `src/index.ts` is now a thin SDK adapter (the only module importing
+  `@logseq/libs`); scanning, ident resolution and settings reading take an
+  injected `SdkPort` (`src/sdk.ts`) so every other module runs under vitest
+  without a host. New pure modules: `progress.ts` (resolve → compute →
+  render pipeline) and `slots.ts` (slot registry).
+- Re-renders are debounced: `DB.onChanged`, settings, theme and graph
+  events coalesce into one pass (300 ms for DB changes) instead of a full
+  re-render per event.
+- Tests live next to their modules (`src/*.test.ts`); 165 → 212 unit tests
+  plus a 13-feature × 144-settings matrix (`src/matrix.test.ts`, 1872
+  cases); 80 % coverage gate on lines/functions/branches/statements with
+  the adapter excluded; tests run in CI and in the release workflow.
 - `pnpm audit` → 0 advisories (was 10 under npm, 2 critical): overrides for
   the `dompurify` / `lodash-es` versions `@logseq/libs` pins; the rest cleared
   by the vite/vitest bumps.
 
 ### Fixed
 
+- Width and colour values from settings or renderer args are validated
+  before they reach `style=""` (`cssWidth`, `isSafeColor`); unsafe values
+  fall back to full width / the neutral colour instead of being injected.
+- One HTML escaper for labels, tooltips, data attributes and error text
+  (the attribute escaper used to miss `&` and `<`).
+- Settings coercion: `defaultDepth` `0`, negative or non-numeric → unlimited
+  (was: a negative depth scanned nothing); JSON settings are shape-checked
+  (an array or a non-string entry no longer breaks the mapping); invalid
+  `displayFormat` falls back to `percent`; stringified booleans accepted.
+- Two overlapping renders of one slot could publish out of order; a
+  per-slot generation counter now drops the stale result.
+- `showOnEmpty` placeholder honours the configured bar width.
+- All hooks are unsubscribed on unload (`onSettingsChanged` and the slash
+  command were leaking); dead `.pb-full-width` CSS rule removed.
+
 ### Removed
+
+- The `autoDetect` setting. It was shown in the settings panel but nothing
+  read it (auto-detect mode was never implemented; see REQUIREMENTS §1.1).
 
 ---
 

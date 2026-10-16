@@ -28,25 +28,25 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [x] CI + publish on pnpm / Node 24, test step (coverage gate thresholds land with Phase 2 once the split lifts coverage past 80 %)
 
 ### Phase 2 — thin adapter + injected SDK port (TDD)
-- [ ] `src/sdk.ts` — `SdkPort`
-- [ ] `src/settings.ts` (from `config.ts`) — `readGlobalConfig(raw)`, hardened coercion, `autoDetect` removed
-- [ ] `src/scanner.ts`, `src/identCache.ts` take `sdk`
-- [ ] `src/progress.ts` — `computeStats`, `renderTemplate`
-- [ ] `src/slots.ts` — registry + generation counter
-- [ ] `src/renderer.ts` — single `escape`, `cssWidth` / `cssColor` validators, `renderEmpty` width, dead CSS removed
-- [ ] `src/debug.ts` — `setDebug`
-- [ ] `src/index.ts` — thin adapter: debounce, stored off-hooks, slash unregister, `safeProvideUI`
-- [ ] tests moved next to modules; coverage gate 80 % excluding adapter + guard
+- [x] `src/sdk.ts` — `SdkPort`
+- [x] `src/settings.ts` (from `config.ts`) — `readGlobalConfig(raw)`, hardened coercion, `autoDetect` removed
+- [x] `src/scanner.ts`, `src/identCache.ts` take `sdk`
+- [x] `src/progress.ts` — `computeStats`, `renderTemplate`
+- [x] `src/slots.ts` — registry + generation counter
+- [x] `src/renderer.ts` — single `escape`, `cssWidth` / `cssColor` validators, `renderEmpty` width, dead CSS removed
+- [x] `src/debug.ts` — `setDebug`
+- [x] `src/index.ts` — thin adapter: debounce, stored off-hooks, slash unregister, `safeProvideUI`
+- [x] tests moved next to modules; coverage gate 80 % excluding adapter + guard
 
 ### Phase 3 — matrix test
-- [ ] `src/matrix.test.ts`: ~12 feature fixtures × 144 settings permutations
+- [x] `src/matrix.test.ts`: 13 feature fixtures × 144 settings permutations = 1872 cases (caught: #Tido out-of-scope block is dropped by strict mode — documented behaviour, encoded as a strict-sensitive expectation)
 
 ### Phase 4 — light bugs
-- [ ] width / colour CSS injection (validators)
-- [ ] depth / JSON / enum settings coercion
-- [ ] `renderEmpty` ignores width; `.pb-full-width` dead rule
-- [ ] out-of-order renders (generation counter)
-- [ ] `autoDetect` setting removed (schema, README, REQUIREMENTS §8.1)
+- [x] width / colour CSS injection (validators) — `cssWidth`, `isSafeColor`
+- [x] depth / JSON / enum settings coercion
+- [x] `renderEmpty` ignores width; `.pb-full-width` dead rule
+- [x] out-of-order renders (generation counter)
+- [~] `autoDetect` setting removed (schema done; README / REQUIREMENTS in Phase 7)
 - [x] Tabler glyph check — not applicable: `grep -rn tabler src/` is empty; the plugin renders no icon glyphs
 
 ### Phase 5 — live run, web app (`pnpm e2e`)
@@ -79,3 +79,4 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 
 ### Progress log
 - 2026-10-15: survey + plan approved; Phase 0 landed.
+- 2026-10-15: Phase 1 (pnpm/Node 24/libs 0.3.4/audit 0), CSP, Phase 2 split (212 tests, coverage 95/87/100/97), Phase 3 matrix (1872 cases) landed.
