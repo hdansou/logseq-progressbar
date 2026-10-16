@@ -45,9 +45,10 @@ export default function logseqSafeDevPlugin(): Plugin {
       userConfig.base = ''
 
       if (resolvedEnv.command === 'serve') {
+        // CORS stays whatever vite.config.ts set (limited to the Logseq
+        // origins); forcing `cors: true` here would silently widen it to `*`.
         userConfig.server = {
           ...userConfig.server,
-          cors: true,
           host: 'localhost',
           hmr: { host: 'localhost' },
           open: false,

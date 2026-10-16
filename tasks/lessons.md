@@ -39,3 +39,43 @@ strings (what this plugin uses); `getBlock(uuid).tags` carries full entities;
 
 **Rule**: Verify the shape on a real DB graph before reading a name off a ref
 object; resolve ids through the matching `getX(id)` and cache per session.
+
+## 2026-10-15 — Setting `status` auto-tags the block with #Task
+
+**Mistake**: The live seed created "untagged" blocks by setting
+`logseq.property/status` on them; Logseq DB adds the `Task` tag whenever a
+Task class property is set, so the strict-filter scenarios had nothing to
+exclude and the override-display bar read 2/2 instead of 1/1.
+
+**Correction**: Untagged fixtures carry a non-class property (`check`) instead.
+
+**Rule**: In DB graphs a class property implies its class. Never assume a
+block stays untagged after a property write; read `:block/tags` back.
+
+## 2026-10-15 — The ident cache went stale the moment a class was created
+
+**Mistake**: `identCache` was refreshed only at init, settings change and
+graph switch. A `Checklist`/`Tido` class created after the plugin loaded was
+unknown until the next settings change, so tagged-but-unset checkbox blocks
+were not counted (the exact "why isn't this block counted?" report in
+AGENTS.md) — the live seed showed 50 % where 33 % was right.
+
+**Correction**: Refresh the cache at the start of every debounced re-render
+pass (two Datascript queries per burst, cheap next to the per-slot scans).
+
+**Rule**: Any cache of graph schema must be refreshed on the same trigger as
+the data it decorates, not only on configuration events.
+
+## 2026-10-15 — The shared dev-server plugin silently widened CORS to `*`
+
+**Mistake**: `vite-logseq-safe-plugin.ts` (copied from logseq-callout) sets
+`cors: true` in its `config` hook, overriding the `server.cors.origin`
+restriction in `vite.config.ts`. `curl -H "Origin: http://evil.example"`
+got `Access-Control-Allow-Origin: *` although the config said localhost:3001.
+logseq-callout has the same line.
+
+**Correction**: The plugin no longer touches `cors`; verified with curl from
+an allowed and a foreign origin.
+
+**Rule**: Verify a security setting from the outside (curl with a foreign
+Origin), never from the config file alone; a later hook can override it.

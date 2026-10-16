@@ -11,6 +11,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `pnpm e2e` — live acceptance matrix in the Logseq web app
+  (`scripts/e2e/`): seeds a "Progress Matrix" page (11 scenarios covering
+  children, checkbox, inherited class-property, strict, depth, renderer-arg
+  overrides, DSL / datalog / compiled / cross-block queries, empty), runs
+  48 host-settings permutations, flips a status and a checkbox for the
+  real-time path, toggles the theme, edits another page, and proves with
+  host-side counters that the plugin makes **zero** graph writes and that
+  reads stop after one debounced burst.
+- `pnpm e2e:desktop` — the same matrix in a second instance of the installed
+  desktop app on a throwaway graph (test-logseq-desktop skill), applying
+  settings by overriding the plugin frame so the shared settings file is
+  never written.
 - Content-Security-Policy meta in `index.html`: the plugin iframe can only
   load its own bundle; no remote scripts, objects, forms or base URLs.
 - `src/__sdk_guard__.ts` — compile-time SDK-floor guard: typecheck fails
@@ -44,6 +56,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- A class or checkbox property created after the plugin loaded was not
+  known to the ident cache until the next settings change, so tagged-but-
+  unset checkbox blocks were left out of the count. The cache is refreshed
+  before every re-render pass.
+- The dev server's CORS restriction was silently overridden to `*` by the
+  shared vite plugin; it now really answers only the Logseq origins.
 - Width and colour values from settings or renderer args are validated
   before they reach `style=""` (`cssWidth`, `isSafeColor`); unsafe values
   fall back to full width / the neutral colour instead of being injected.

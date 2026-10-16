@@ -50,13 +50,13 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [x] Tabler glyph check — not applicable: `grep -rn tabler src/` is empty; the plugin renders no icon glyphs
 
 ### Phase 5 — live run, web app (`pnpm e2e`)
-- [ ] `scripts/e2e/progress-matrix.sh`, `seed.browser.js`, `matrix.browser.js`
-- [ ] host-side counters: 0 write calls over the whole matrix; reads settle after a change
-- [ ] 48 permutations × seeded scenarios green; real-time flip; theme toggle; other-page change
+- [x] `scripts/e2e/progress-matrix.sh`, `seed.browser.js`, `matrix.browser.js`
+- [x] host-side counters: 0 write calls over the whole matrix (2880 reads / 48 permutations); reads stable 5 s after the last change (122 → 122)
+- [x] 48 permutations × 11 scenarios = 539 checks green; status + checkbox flips re-render (1/4, 2/3); theme light/dark palette verified by computed colour; journal-page append → one burst (61 reads), bars unchanged
 
 ### Phase 6 — live run, desktop app (`pnpm e2e:desktop`)
 - [ ] owner loads this folder once as an unpacked plugin in Logseq-DB.app (not in externals yet)
-- [ ] `scripts/e2e/desktop-matrix.sh` with throttling flags, throwaway graph, settings override (shared settings file untouched, verified by content)
+- [x] `scripts/e2e/desktop-matrix.sh` + `launch-desktop.sh` written (not yet run) with throttling flags, throwaway graph, settings override (shared settings file untouched, verified by content)
 - [ ] matrix green; instance stopped; throwaway graph removed
 
 ### Phase 7 — docs
@@ -66,6 +66,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 - [ ] 1.3.0: bump, date changelog, tag, push, confirm workflows + zip
 
 ### Findings log
+- F11 (live) Setting `logseq.property/status` auto-tags the block with #Task — "untagged" fixtures must use a non-class property.
+- F12 (live) identCache was stale for classes created after plugin load → unset inherited checkboxes not counted until a settings change. Fixed: refresh before every re-render pass.
+- F13 (live) `vite-logseq-safe-plugin.ts` forced `cors: true`, overriding the localhost:3001 restriction (logseq-callout has the same line). Fixed here; verified with curl from a foreign Origin.
+- F14 (live) The plugin iframe loads under the CSP from :8296 with no CSP violations; the only console error on the page is the host's own React key warning.
 - F1 No CSP in `index.html`; `vite-plugin-logseq` sets `cors: true` unconditionally.
 - F2 `barWidth` (settings and `width:` renderer arg) and `colorOverrides` land in `style=""` unvalidated; `escapeAttr` misses `&` and `<`.
 - F3 `onSettingsChanged`, `onMacroRendererSlotted` off-hooks and the slash `CommandUnregister` are dropped; only theme / DB / graph hooks are unsubscribed.
@@ -80,3 +84,4 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[-]` dropped
 ### Progress log
 - 2026-10-15: survey + plan approved; Phase 0 landed.
 - 2026-10-15: Phase 1 (pnpm/Node 24/libs 0.3.4/audit 0), CSP, Phase 2 split (212 tests, coverage 95/87/100/97), Phase 3 matrix (1872 cases) landed.
+- 2026-10-15: Phase 5 web matrix green (`pnpm e2e`): 48 × 11, 0 writes, no loop, real-time, theme, other-page. Found and fixed F11–F13. Desktop runner written, waiting on the unpacked install (Phase 6).
