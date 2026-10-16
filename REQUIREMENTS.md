@@ -6,16 +6,18 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 **Target platform**: Logseq DB graphs only (not file-based graphs).
 
-**SDK**: `@logseq/libs ^0.3.2`. The plugin manifest declares `supportsDB: true`, `supportsDBOnly: true`, and `minSDKVersion: "0.3.2"` in `package.json#logseq`.
+**SDK**: `@logseq/libs ^0.3.4`. The plugin manifest declares `web`, `effect: false`, `supportsDB`, `supportsDBOnly` and `minSDKVersion: "0.3.4"` inside `package.json#logseq`; `src/__sdk_guard__.ts` fails typecheck if an older SDK is installed.
+
+**Graph mutation**: none, ever. The plugin reads and renders; it never writes to the graph (verified by host-side counters in the live test suite, §13).
 
 ---
 
 ## 1. Placement & Trigger Modes
 
-### 1.1 Auto-Detect Mode
+### 1.1 Auto-Detect Mode — not implemented
 
-- Automatically render a progress bar on any block/page whose descendants include blocks with configured tags.
-- The bar appears inline with the parent block content.
+- Intended behaviour: automatically render a progress bar on any block/page whose descendants include blocks with configured tags, inline with the parent block content.
+- Status: never implemented (no `onRouteChanged` scan). The `autoDetect` setting that advertised it was removed in 1.3.0 so the settings panel no longer shows a dead toggle. The manual renderer (§1.2) and query integration (§1.3) are the only triggers.
 
 ### 1.2 Manual Mode (Renderer Macro)
 
@@ -159,8 +161,9 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 
 ### 5.4 Size & Width
 
-- **Default**: Full width of the block content area.
-- **Compact mode**: Fixed or custom width (e.g., 200px), inline next to block title.
+- **Default (`full`)**: `width: 100%` of the renderer slot. Logseq mounts the macro slot inline in the block title, so in practice the bar takes its minimum width (60 px + label) next to the title — the same look as the README screenshot. A true block-wide bar would need the slot itself to become block-level; not planned.
+- **Compact mode**: fixed 200 px, inline next to block title.
+- **Custom**: any CSS length or percentage (`width: 300px`); values that are not a plain length fall back to `full` (they would otherwise reach `style=""` unvalidated).
 - User-configurable: global setting + per-instance override.
 
 ### 5.5 Animation
@@ -218,7 +221,7 @@ A Logseq DB-graph plugin that visualizes task/item completion as a segmented pro
 | `strictTagFilter`  | boolean | `false`                                    | Only count blocks with matching tags                                  |
 | `displayFormat`    | enum    | `"percent"`                                | `"percent"`, `"fraction"`, `"both"`                                   |
 | `barWidth`         | enum    | `"full"`                                   | `"full"`, `"compact"`, or pixel value                                 |
-| `autoDetect`       | boolean | `true`                                     | Enable auto-detect mode                                               |
+| `debug`            | boolean | `false`                                    | Verbose logging in the plugin console                                 |
 | `showOnEmpty`      | boolean | `false`                                    | Show bar when zero matching blocks                                    |
 | `colorOverrides`   | object  | `{}`                                       | Per-status color overrides                                            |
 
@@ -254,13 +257,18 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 
 ## 10. Performance
 
-- **Real-time updates** via `DB.onChanged` event listener — every DB
-  mutation triggers `rerenderAll` over `activeRenderers`. Each entry's
-  slot is re-validated (`UI.checkSlotValid`) and stale slots are pruned
-  before re-rendering.
-- No debounce in current implementation — graphs of 50+ blocks have
-  rendered fine in practice. Add a debounce layer behind a setting if
-  profiling shows real-time updates degrading.
+- **Real-time updates** via `DB.onChanged`. Every DB, settings, theme and
+  graph event schedules one debounced pass (300 ms for DB changes, 50–100 ms
+  for the others) that refreshes the ident cache and re-renders every live
+  slot. Slots are re-validated (`UI.checkSlotValid`) and pruned during the
+  pass. Every slot is re-rendered on any change because query mode can
+  depend on any block in the graph; page-filtering the hook is not safe here.
+- **Ordering**: each slot carries a generation counter; a render whose
+  async work finishes after a newer render started is discarded, so bars
+  never show stale data.
+- **No feedback loop**: the plugin never writes, so a re-render can never
+  trigger another `DB.onChanged`. The live suite asserts that reads stop
+  within 5 s of the last change.
 - Compute progress from in-memory data; query mode uses a single
   `datascriptQuery` to pull all matching blocks with their tags +
   tracked property resolved inline (no per-block round-trips).
@@ -274,8 +282,11 @@ Supported params in `{{renderer :progress-bar, ...}}`:
 Targets `@logseq/libs ^0.3.2`. Concrete calls used by the current
 implementation (not aspirational):
 
+- **Adapter boundary**: `src/index.ts` is the only module that imports
+  `@logseq/libs`. It builds a four-method `SdkPort` (`datascriptQuery`,
+  `getBlock`, `getBlockProperties`, `getPageBlocksTree`) for the pure modules.
 - **Rendering**: `App.onMacroRendererSlotted` for `{{renderer :progress-bar}}`.
-  Each invocation registers in `activeRenderers` for re-render bookkeeping.
+  Each invocation is tracked in the slot registry (`src/slots.ts`).
 - **Query results**: `DB.datascriptQuery` for both query-block resolution
   (`:logseq.property/query → :block/title`) and bulk pulls of matching
   blocks with inline tag / tracked-property resolution.
@@ -284,17 +295,18 @@ implementation (not aspirational):
   read from the props record under `":block/tags"` (DB graphs), with
   fallbacks for legacy key shapes. No separate `getTag`/`getTagObjects`
   calls.
-- **Settings**: `useSettingsSchema` + `onSettingsChanged` for the global
-  settings panel. The plugin's `onSettingsChanged` handler is args-less
-  and just calls `rerenderAll`.
+- **Settings**: `useSettingsSchema` + `onSettingsChanged`. The raw
+  `logseq.settings` record is passed to `readGlobalConfig(raw)`, which
+  coerces every field (§8.1 notes).
 - **Theme**: `App.onThemeModeChanged` for dark/light adaptation.
 - **UI**: `provideUI` + `provideStyle`. **All `provideUI` calls go through
-  the local `safeProvideUI` helper** in `renderProgressBar` which
-  re-checks `UI.checkSlotValid` immediately before the call — slots can
-  unmount during the async DB work between the macro firing and the
-  render.
-- **Lifecycle**: `logseq.beforeunload` clears `activeRenderers` and runs
-  the off-hook list collected during `main()`.
+  the local `safeProvideUI` helper** in the adapter's `render`, which drops
+  stale generations and re-checks `UI.checkSlotValid` immediately before
+  the call — slots can unmount during the async DB work.
+- **Lifecycle**: `logseq.beforeunload` clears the timer, calls every stored
+  off-hook (theme, DB, settings, graph, slash-command unregister) and
+  empties the slot registry. Slot hooks have no off-function in the SDK;
+  the host drops them on unload.
 
 ### 11.2 Renderer Macro Format
 
@@ -308,17 +320,19 @@ implementation (not aspirational):
 ### 11.3 Data Flow
 
 ```txt
-1. Trigger (DB.onChanged | onSettingsChanged | onThemeModeChanged | macro slot)
-2. renderProgressBar(slot, args, blockUuid):
-   2a. Parse args + resolve config (global ↔ per-instance overrides)
-3. countQueryStatuses(uuid):
-   ├── resolveQueryRaw → classify → toBlockDatalog → datascriptQuery
-   │   → entityToBlockData[] → aggregate → StatusCounts
-   └── returns null if the block has no :logseq.property/query
-4. (fallback when 3 returns null) scanChildren → filterByTags → aggregate
-5. buildSegments(counts, total, completeValues, themeMode, overrides)
-6. renderBar(segments, stats, config) → HTML
-7. safeProvideUI(template) — drops the call if the slot is gone
+1. Trigger: macro slot → render(entry); DB / settings / theme / graph
+   event → scheduleRerender → refreshIdentCache → rerenderAll
+2. render(entry)  [src/index.ts]
+   2a. resolveInstance(rawSettings, args)  [progress.ts]
+       = readGlobalConfig + parseRendererArgs + resolveConfig + colour overrides
+3. computeStats(sdk, uuid, config)  [progress.ts]
+   ├── countQueryStatuses: resolveQueryRaw → classify → toBlockDatalog
+   │   → datascriptQuery → entityToBlockData[] → aggregate
+   └── null (no :logseq.property/query) → scanChildren → filterByTags → aggregate
+4. renderTemplate(stats, config, theme, overrides, id)  [progress.ts]
+   = "" | renderEmpty | buildSegments → renderBar
+5. safeProvideUI(template) — skipped if a newer render of the slot has
+   started or the slot is gone
 ```
 
 ### 11.4 Architecture reference
@@ -328,7 +342,29 @@ Detailed pipeline walkthrough, design decisions, and file/symbol map:
 
 ---
 
-## 12. Out of Scope (v1)
+## 12. Testing
+
+- **Unit + matrix** (`pnpm test`, CI-blocking): vitest suites next to every
+  pure module; `src/matrix.test.ts` runs every feature fixture (enum,
+  checkbox incl. inherited class-property, mixed, strict, depth, renderer-arg
+  overrides, DSL / datalog-map / bare-vector / compiled / cross-block
+  queries, empty scope) through the pure pipeline under every settings
+  permutation (format × width × strict × showOnEmpty × depth × theme).
+  Coverage gate 80 % on lines, functions, branches and statements, with the
+  adapter and SDK guard excluded.
+- **Live, web app** (`pnpm e2e`): `scripts/e2e/` seeds a "Progress Matrix"
+  page in the Logseq web app, applies 48 host-settings permutations and reads
+  every bar out of the host DOM (label, width, segments, colours); flips a
+  status and a checkbox; toggles the theme; edits another page. Host-side
+  counters on `logseq.api` prove zero graph writes and that reads stop after
+  one debounced burst.
+- **Live, desktop app** (`pnpm e2e:desktop`): the same payloads in a second
+  instance of the installed desktop app on a throwaway graph, launched with
+  the timer-throttling flags; settings are applied by overriding the plugin
+  frame so the shared settings file is never written (verified by content).
+- **Manual visual checklist**: `TESTING.md` §5.
+
+## 13. Out of Scope (v1)
 
 - File-based graph support.
 - Click-to-filter or click-to-navigate interactions.

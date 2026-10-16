@@ -20,9 +20,11 @@ Track progress derived from configurable properties (`status`, `state`, or any c
 
    ```bash
    cd logseq-progressbar
-   npm install
-   npm run build
+   pnpm install
+   pnpm build
    ```
+
+   Requires Node 24 (`.nvmrc`) and pnpm.
 
 2. In Logseq, go to **Settings → Advanced → Enable Developer mode**
 3. Open **Plugins** (three-dot menu → Plugins)
@@ -32,15 +34,18 @@ Track progress derived from configurable properties (`status`, `state`, or any c
 ### Development
 
 ```bash
-npm run dev         # Rebuild dist/ on change
-npm run dev:serve   # In a second terminal: serve dist/ over HTTP for Logseq to load
-npm run test        # Run unit tests
-npm run typecheck   # Strict TypeScript check
-npm run build       # Production build
+pnpm dev            # Vite dev server at http://localhost:8296 (HMR, plugin auto-reload)
+pnpm watch          # Rebuild dist/ on change (no server)
+pnpm test           # Unit tests + feature × settings matrix, with the coverage gate
+pnpm typecheck      # Strict TypeScript check (includes the SDK-floor guard)
+pnpm build          # Production build
+pnpm e2e            # Live matrix in the Logseq web app at localhost:3001
+pnpm e2e:desktop    # Live matrix in a second instance of the desktop app
 ```
 
-With both `dev` and `dev:serve` running, load the plugin in Logseq via
-**Plugins → Load plugin from web url** → `http://127.0.0.1:8080/`
+With `pnpm dev` running, load the plugin in Logseq via
+**Plugins → Load plugin from web url** → `http://localhost:8296/`
+(the dev server only answers CORS requests from `localhost:3001`).
 
 ---
 
@@ -123,7 +128,7 @@ All parameters are optional. Global plugin settings are used as defaults.
 | `depth`    | `depth: 2`                 | Scan depth (`1`, `2`, ..., or `all`)             |
 | `strict`   | `strict: true`             | Only count blocks with matching tags             |
 | `format`   | `format: both`             | Label format: `percent`, `fraction`, or `both`   |
-| `width`    | `width: 200px`             | Bar width: `full`, `compact`, or CSS value       |
+| `width`    | `width: 200px`             | Bar width: `full`, `compact`, or a CSS length / percentage (anything else falls back to `full`) |
 | `query`    | `query: <uuid>`            | Track a query block's results                    |
 
 ---
@@ -148,8 +153,12 @@ Open **Plugins → Progress Bar → Settings** to configure global defaults.
 | Strict Tag Filtering | `false`   | Exclude untagged blocks from the count        |
 | Display Format       | `percent` | `percent` (54%), `fraction` (7/13), or `both` |
 | Bar Width            | `full`    | `full` (100% width) or `compact` (inline)     |
-| Auto-Detect Mode     | `true`    | Auto-show bars on blocks with tagged children |
 | Show on Empty        | `false`   | Show an empty 0% bar when no items match      |
+| Debug logging        | `false`   | Log scan and render details to the plugin console |
+
+Hand-edited or stale values are coerced defensively: an invalid display
+format falls back to `percent`, a depth of `0` or less means `all`, and a
+JSON mapping that is not an object falls back to the default.
 
 ### Color Overrides
 
@@ -263,37 +272,55 @@ up into one bar.
 
 ```txt
 src/
-├── types.ts        — Shared TypeScript types
+├── index.ts        — Thin SDK adapter: the only module importing @logseq/libs
+├── sdk.ts          — SdkPort: the four SDK calls the pure modules need
+├── progress.ts     — resolveInstance → computeStats → renderTemplate pipeline
+├── slots.ts        — Registry of live renderer slots (+ generation counter)
+├── settings.ts     — Settings schema, readGlobalConfig (coercion), resolveConfig
 ├── parser.ts       — Renderer macro argument parser
-├── config.ts       — Plugin settings schema + config resolver
-├── scanner.ts      — Block scanning (children, page, query)
-├── aggregator.ts   — Status counting + completion calculation
-├── colors.ts       — Color palette + segment ordering
-├── renderer.ts     — HTML rendering + CSS styles
-├── index.ts        — Main entry: triggers, events, lifecycle
+├── scanner.ts      — Block scanning (children, page, query) through the port
 ├── query.ts        — Query classifier, DSL→datalog, entity adapter, pull enricher
-├── debug.ts        — Verbose-log helper (gated by `debug` setting)
-└── __tests__/      — Unit tests (105 tests across 12 files)
+├── identCache.ts   — Property ident / type / class-property cache
+├── aggregator.ts   — Status counting + completion calculation
+├── colors.ts       — Palette, segment ordering, colour validation
+├── renderer.ts     — HTML rendering, width validation, CSS styles
+├── debug.ts        — Verbose-log helper
+├── *.test.ts       — Vitest suites next to the module they cover
+└── matrix.test.ts  — Every feature × every settings permutation
+scripts/e2e/        — Live matrices (web app and desktop app)
 ```
 
-### Running Tests
+### Testing
 
-```bash
-npm test            # Run once
-npm run test:watch  # Watch mode
-```
+Three layers, all repeatable:
+
+| Layer | Command | What it proves |
+| --- | --- | --- |
+| Unit + matrix | `pnpm test` | Every pure module; 13 features × 144 settings permutations; 80 % coverage gate |
+| Live, web app | `pnpm e2e` | Seeds a page in the Logseq web app (localhost:3001), checks every scenario under 48 settings permutations in the host DOM, flips a status and a checkbox, toggles the theme, edits another page, and counts every SDK call the plugin makes (zero graph writes, reads stop after one debounced burst) |
+| Live, desktop app | `pnpm e2e:desktop` | The same matrix in a second instance of the installed desktop app on a throwaway graph; settings are applied in memory so the shared settings file is never written |
+
+See the headers of `scripts/e2e/progress-matrix.sh` and `desktop-matrix.sh`
+for prerequisites.
 
 ---
 
 ## Privacy
 
-The plugin runs entirely inside your Logseq client. It reads block properties,
-runs Datascript queries against the loaded graph, and writes the rendered bar
-back through Logseq's plugin UI surface. **No data leaves the client** — there
-are no external network calls, no telemetry, and no third-party services.
+The plugin runs entirely inside your Logseq client. **No data leaves the
+client** — there are no external network calls, no telemetry, and no
+third-party services. The plugin's own page carries a Content-Security-Policy
+that only allows its bundled code.
 
-Settings (tags, property mappings, color overrides) are stored by Logseq in
-its standard plugin-settings file alongside other plugin settings.
+**Graph writes: none.** The plugin never creates, edits or deletes blocks,
+pages, tags or properties. It reads block properties and runs Datascript
+queries against the loaded graph, and renders the bar into Logseq's plugin
+UI slot (`provideUI`), which is DOM only. The live test suite (`pnpm e2e`)
+counts every SDK call during a full run and fails if a single write occurs.
+
+The only thing the plugin stores is its settings (tags, property mappings,
+colour overrides), which Logseq keeps in its standard plugin-settings file
+alongside other plugin settings.
 
 ---
 

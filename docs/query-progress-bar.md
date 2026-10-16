@@ -1,6 +1,6 @@
 # Progress Bar: Architecture & Data Flow
 
-Current as of Phase 9 (2026-05). Reflects the unified `datascriptQuery`
+Current as of the 2026-10-15 hardening pass (v1.3.0). Reflects the unified `datascriptQuery`
 pipeline from Phase 7 plus the Phase 8/9 checkbox-tracking and real-graph
 SDK fixes. Supersedes the pre-Phase-7 "four-attempt fallback" architecture.
 
@@ -20,37 +20,38 @@ booleans, and mixed children works identically regardless of scan path.
 
 ---
 
-## 1. Entry point — `index.ts:main → renderProgressBar`
+## 1. Entry point — `index.ts:main → render` and `progress.ts`
+
+`src/index.ts` is a thin adapter: the only module that imports
+`@logseq/libs`. It builds a four-method `SdkPort` (`src/sdk.ts`:
+`datascriptQuery`, `getBlock`, `getBlockProperties`, `getPageBlocksTree`)
+and hands it to the pure modules, so everything below this section runs
+under vitest with a fake port.
 
 `logseq.App.onMacroRendererSlotted` fires for every visible
-`{{renderer :progress-bar}}`. Each invocation creates a slot-scoped
-instance key (`pb-<slot>`) and is tracked in `activeRenderers` so
-`DB.onChanged` / `onSettingsChanged` / `onThemeModeChanged` can re-render
-the right bars without scanning the page.
-
-`renderProgressBar` flow (`src/index.ts:52-121`):
+`{{renderer :progress-bar}}`. The adapter tracks the slot in the registry
+(`src/slots.ts`) and calls `render(entry)`:
 
 ```
-parse args → resolve config → countQueryStatuses(uuid) ──┐
-                                                          ▼
-                                  null? ──── yes ──→ scanChildren + filterByTags + aggregate
-                                  no                       │
-                                  │                        ▼
-                                  └────────────→ stats: StatusCounts
-                                                          │
-                                  stats.total === 0? ─── yes ──→ renderEmpty (if showOnEmpty) | ""
-                                  no                       │
-                                  ▼                        ▼
-                            buildSegments  ────→  renderBar(html)
-                                                          │
-                                                          ▼
-                                            safeProvideUI(slot, html)
+render(entry)                                   [index.ts]
+  generation = slots.begin(slot)
+  resolveInstance(rawSettings, args)            [progress.ts]
+    = readGlobalConfig(raw) + parseRendererArgs(args) + resolveConfig + parseColorOverrides
+  computeStats(sdk, uuid, config)               [progress.ts]
+    countQueryStatuses(sdk, queryUUID ?? uuid)  ──┐
+    null? ── yes ──→ scanChildren → filterByTags → aggregate
+    no ─────────────────────────────────────────┘ → StatusCounts
+  renderTemplate(stats, config, theme, overrides, id)   [progress.ts]
+    total === 0 → "" | renderEmpty (showOnEmpty)
+    else        → buildSegments → renderBar
+  safeProvideUI(html)                           [index.ts]
+    dropped if slots.isCurrent(slot, generation) is false (a newer render started)
+    dropped (and slot forgotten) if UI.checkSlotValid is false
 ```
 
-`safeProvideUI` re-checks `logseq.UI.checkSlotValid(slot)` immediately
-before each `provideUI` call. Async DB work between the macro firing and
-the call can straddle a slot unmount; without the guard, Logseq logs
-`can not resolve selector target #slot__xxx`.
+The instance key is slot-scoped (`pb-<slot>`): Logseq renders a query
+block's title through several slot instances, and a block-scoped key would
+show the bar in each.
 
 ---
 
@@ -177,7 +178,7 @@ aggregate(blocks, config) → StatusCounts
 
 DB graphs return tags under the colon-prefixed key
 `":block/tags"` in `getBlockProperties`, as a plain string array
-(`["Tido"]`). `extractTagNames` (`scanner.ts:270-298`) walks that key
+(`["Tido"]`). `extractTagNames` (`scanner.ts`) walks that key
 chain (`:block/tags` → `block/tags` → `tags` → top-level `block.tags`)
 and handles both plain-string and entity-object element shapes. Pure /
 synchronous — runs on the props already fetched, so `toBlockData`
@@ -234,34 +235,46 @@ Segment widths animate via CSS transition.
 
 ## 6. Real-time updates
 
-`activeRenderers: Map<key, {slot, args, uuid}>` accumulates every macro
-slot the plugin has handled. Three host events drive `rerenderAll`:
+Four host events schedule one debounced pass through `scheduleRerender`:
 
-| Event                       | Where registered     | Action                              |
-| --------------------------- | -------------------- | ----------------------------------- |
-| `DB.onChanged`              | `index.ts:167`       | Any DB mutation → re-render all     |
-| `onSettingsChanged`         | `index.ts:175`       | Settings panel saved → re-render    |
-| `App.onThemeModeChanged`    | `index.ts:38`        | Light/dark toggle → re-render       |
+| Event | Delay | Why |
+|---|---|---|
+| `DB.onChanged` | 300 ms | Any DB mutation anywhere; bursts (typing) coalesce |
+| `onSettingsChanged` | 100 ms | Settings panel saved |
+| `App.onThemeModeChanged` | 50 ms | Palette switch |
+| `App.onCurrentGraphChanged` | 100 ms | Different graph = different idents; cache cleared first |
 
-`rerenderAll` (`index.ts:124-133`) checks `UI.checkSlotValid` for each
-entry before re-invoking `renderProgressBar`; stale entries are pruned.
+The pass refreshes `identCache` (two Datascript queries — a class or
+property created after plugin load must be known before the next render),
+then re-renders every tracked slot in turn. Every slot is re-rendered on
+any change because query mode can depend on any block in the graph. The
+plugin never writes, so a pass can never re-trigger `DB.onChanged`; the live
+suite asserts that SDK reads stop within 5 s of the last change.
+
+Overlapping renders of one slot cannot publish out of order: each render
+holds the generation it started with and `safeProvideUI` drops a stale one.
 
 ---
 
 ## 7. File / symbol map
 
-| File                | Role                                                                          |
-| ------------------- | ----------------------------------------------------------------------------- |
-| `src/index.ts`      | Plugin lifecycle, macro/slash handlers, `renderProgressBar`, `safeProvideUI`, `rerenderAll`, `activeRenderers` |
-| `src/parser.ts`     | `parseRendererArgs` — turns macro arg strings into a config-override record   |
-| `src/config.ts`     | `DEFAULTS`, `SETTINGS_SCHEMA`, `readGlobalConfig`, `resolveConfig`            |
-| `src/scanner.ts`    | Query mode (`countQueryStatuses`, `resolveQueryRaw`, `buildDslDatalog`, `rowsToBlocks`) + children mode (`scanChildren`, `scanPage`, `collectBlocks`, `toBlockData`, `extractTagNames`) + tag filter (`filterByTags`) |
-| `src/query.ts`      | Pure pipeline pieces: `classifyQuery`, `extractDatalogVector`, `parseDSL`, `dslToBlockQuery`, `rewriteCompiledDsl`, `enrichPull`, `entityToBlockData`, `QueryParseError` |
-| `src/aggregator.ts` | `aggregate`, `formatLabel`, `resolvePropertyCandidates`, `readPropertyValue`  |
-| `src/colors.ts`     | `getStatusColor`, `buildSegments`, `parseColorOverrides`                      |
-| `src/renderer.ts`   | `renderBar`, `renderEmpty`, `PLUGIN_CSS`                                      |
-| `src/debug.ts`      | `debug()` — gated console.log (settings flag or `window.__LOGSEQ_PROGRESSBAR_DEBUG__`) |
-| `src/types.ts`      | `ProgressBarConfig`, `StatusCounts`, `StatusColor`, `BarSegment`              |
+| File | Symbols |
+|---|---|
+| `src/index.ts` | Adapter: `sdk` port object, `render`, `safeProvideUI`, `rerenderAll`, `scheduleRerender`, `refreshIdentCache`, hook wiring, `beforeunload` |
+| `src/sdk.ts` | `SdkPort` |
+| `src/progress.ts` | `resolveInstance`, `computeStats`, `renderTemplate` |
+| `src/slots.ts` | `createSlotRegistry` (`track`, `forget`, `begin`, `isCurrent`, `entries`, `clear`) |
+| `src/settings.ts` | `DEFAULTS`, `SETTINGS_SCHEMA`, `readGlobalConfig`, `resolveConfig`, `parseDepth`, `parseDisplayFormat` |
+| `src/parser.ts` | `parseRendererArgs`, `parsePipeList` |
+| `src/scanner.ts` | Query mode (`countQueryStatuses`, `resolveQueryRaw`, `buildDslDatalog`, `rowsToBlocks`) + children mode (`scanChildren`, `scanPage`, `collectBlocks`, `toBlockData`, `extractTagNames`) + `filterByTags` |
+| `src/query.ts` | `classifyQuery`, `extractDatalogVector`, `parseDSL`, `dslToBlockQuery`, `rewriteCompiledDsl`, `enrichPull`, `entityToBlockData`, `QueryParseError` |
+| `src/identCache.ts` | `refresh(sdk, names)`, `lookup`, `lookupType`, `isClassProperty`, `getAllClassProps`, `clear`, `buildIndexes` |
+| `src/aggregator.ts` | `aggregate`, `formatLabel`, `readPropertyValue`, `blockHasInheritedClassProperty` |
+| `src/colors.ts` | `getStatusColor`, `buildSegments`, `parseColorOverrides`, `isSafeColor` |
+| `src/renderer.ts` | `renderBar`, `renderEmpty`, `renderError`, `cssWidth`, `escape`, `PLUGIN_CSS` |
+| `src/debug.ts` | `debug`, `setDebug` |
+| `src/matrix.test.ts` | Every feature × every settings permutation through the pure pipeline |
+| `scripts/e2e/` | `seed.browser.js`, `matrix.browser.js` (shared), `progress-matrix.sh` (web), `desktop-matrix.sh` + `launch-desktop.sh` (desktop) |
 
 ---
 

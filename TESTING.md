@@ -8,18 +8,20 @@
 
 ### 1.1 Test Levels
 
-| Level                 | Tool                | Scope                                                                 |
-| --------------------- | ------------------- | --------------------------------------------------------------------- |
-| **Unit tests**        | Vitest              | Pure functions: arg parser, config resolver, aggregator, color system |
-| **Integration tests** | Vitest + mocks      | Plugin API interactions: block scanning, query execution, settings    |
-| **Manual E2E tests**  | Logseq dev instance | Full plugin behavior in a running Logseq DB graph                     |
+| Level                   | Tool / command              | Scope                                                                                     |
+| ----------------------- | --------------------------- | ----------------------------------------------------------------------------------------- |
+| **Unit tests**          | `pnpm test` (vitest)        | Every pure module; the scanner and ident cache through a fake `SdkPort`                   |
+| **Matrix**              | `pnpm test` (`matrix.test.ts`) | 13 feature fixtures × 144 settings permutations through the pure pipeline              |
+| **Live, web app**       | `pnpm e2e`                  | Seeded page in the Logseq web app, 48 settings permutations, real-time, theme, counters   |
+| **Live, desktop app**   | `pnpm e2e:desktop`          | Same payloads in a second instance of the installed desktop app on a throwaway graph      |
+| **Manual visual check** | §5 checklist                | Shape, alignment, tooltip, overflow — things a computed-style assertion does not cover     |
 
 ### 1.2 Approach
 
-- Unit tests are automated and run on every build (`npm test`).
-- Integration tests mock `@logseq/libs` API calls.
-- Manual E2E tests use a dedicated test graph with pre-built scenarios.
-- Visual tests are manual — screenshot comparisons for bar rendering.
+- `pnpm test` runs in CI and in the release workflow with an 80 % coverage gate (adapter and SDK guard excluded).
+- Nothing mocks `@logseq/libs`: the pure modules take an `SdkPort`, tests pass a fake.
+- The live suites seed their own fixtures idempotently (`scripts/e2e/seed.browser.js`) and read results out of the host DOM; they wrap `logseq.api` write functions with counters and fail on a single plugin write.
+- The §3 and §4 tables below are the scenario catalogue the automated matrices implement; the manual E2E steps remain useful when reproducing a report by hand.
 
 ---
 
@@ -129,7 +131,15 @@
 
 ---
 
-## 4. Manual E2E Test Scenarios
+## 4. E2E Test Scenarios
+
+Automated by `pnpm e2e` / `pnpm e2e:desktop` (see `scripts/e2e/`). The
+seeded "Progress Matrix" page covers: enum children, checkbox children with
+an inherited (unset) class-property, mixed, untagged (strict-sensitive),
+nested (depth-sensitive), renderer-arg overrides (`tags/property/complete`
+and `format/width/depth/strict`), DSL / datalog-map / `query: <uuid>`
+queries, and an empty scope. The steps below describe the same scenarios
+for a manual run.
 
 ### 4.1 Test Graph Setup
 
@@ -160,7 +170,6 @@ Page: "Test Progress Bar"
 | E01 | Basic render           | Load page with `{{renderer :progress-bar}}`                                       | Segmented bar appears with correct counts       |
 | E02 | Manual with overrides  | Insert `{{renderer :progress-bar, tags: Task, format: both}}`                     | Bar shows only #Task blocks, label: `2/4 · 50%` |
 | E03 | Query progress bar     | Insert `{{renderer :progress-bar, query: <uuid>}}`                                | Bar reflects query result statuses              |
-| E04 | Auto-detect            | Enable auto-detect, navigate to page with #Task children                          | Bars appear on parent blocks automatically      |
 | E05 | Real-time update       | Change a task from Todo → Done                                                    | Bar animates, percentage updates                |
 | E06 | Theme switch           | Toggle dark/light mode                                                            | Colors update immediately                       |
 | E07 | Empty state — hidden   | Set `showOnEmpty: false`, no matching blocks                                      | Bar not visible                                 |
