@@ -1,5 +1,7 @@
 # Logseq Progress Bar Plugin — Task Tracker
 
+> **From 2026-10-15 the live tracker is [`tasks/todo.md`](./tasks/todo.md)** (production-hardening pass and later work). This file is the Phase 0–9 history.
+>
 > Track all implementation tasks here. Mark tasks `[x]` as they are completed.
 > Reference: [REQUIREMENTS.md](./REQUIREMENTS.md) | [CHANGELOG.md](./CHANGELOG.md) | [TESTING.md](./TESTING.md)
 

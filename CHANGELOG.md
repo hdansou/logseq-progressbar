@@ -7,6 +7,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+---
+
 ## [1.2.0] - 2026-05-26
 
 Property-ident resolution moves from a single regex to a DB-backed cache.
